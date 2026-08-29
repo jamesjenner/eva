@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="EVA.App/EVA.App.csproj" />
+  <Project Path="EVA.Core/EVA.Core.csproj" />
+  <Project Path="EVA.Infrastructure/EVA.Infrastructure.csproj" />
+  <Project Path="EVA.Tests/EVA.Tests.csproj" />
+</Solution>

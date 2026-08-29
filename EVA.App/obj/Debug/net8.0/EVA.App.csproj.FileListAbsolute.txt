@@ -1,0 +1,15 @@
+C:\Users\james\github\eva\EVA.App\bin\Debug\net8.0\EVA.App.deps.json
+C:\Users\james\github\eva\EVA.App\bin\Debug\net8.0\EVA.App.dll
+C:\Users\james\github\eva\EVA.App\bin\Debug\net8.0\EVA.App.pdb
+C:\Users\james\github\eva\EVA.App\bin\Debug\net8.0\EVA.Core.dll
+C:\Users\james\github\eva\EVA.App\bin\Debug\net8.0\EVA.Core.pdb
+C:\Users\james\github\eva\EVA.App\obj\Debug\net8.0\EVA.App.csproj.AssemblyReference.cache
+C:\Users\james\github\eva\EVA.App\obj\Debug\net8.0\EVA.App.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\james\github\eva\EVA.App\obj\Debug\net8.0\EVA.App.AssemblyInfoInputs.cache
+C:\Users\james\github\eva\EVA.App\obj\Debug\net8.0\EVA.App.AssemblyInfo.cs
+C:\Users\james\github\eva\EVA.App\obj\Debug\net8.0\EVA.App.csproj.CoreCompileInputs.cache
+C:\Users\james\github\eva\EVA.App\obj\Debug\net8.0\EVA.App.csproj.Up2Date
+C:\Users\james\github\eva\EVA.App\obj\Debug\net8.0\EVA.App.dll
+C:\Users\james\github\eva\EVA.App\obj\Debug\net8.0\refint\EVA.App.dll
+C:\Users\james\github\eva\EVA.App\obj\Debug\net8.0\EVA.App.pdb
+C:\Users\james\github\eva\EVA.App\obj\Debug\net8.0\ref\EVA.App.dll
