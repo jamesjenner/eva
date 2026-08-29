@@ -1,0 +1,21 @@
+# VS Code files and folders
+.vscode/
+*.code-workspace
+.history/
+
+# .NET Build Outputs
+bin/
+obj/
+
+# User-specific Visual Studio/VS Code settings
+.vs/
+*.user
+*.userosscache
+*.sln.docstates
+
+# Mono Auto Generated Files
+mono_crash.*
+
+# Operating System files
+.DS_Store
+Thumbs.db
