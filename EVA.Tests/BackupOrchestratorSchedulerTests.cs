@@ -120,7 +120,7 @@ public sealed class BackupOrchestratorTests
         var scanner = CreateScanner(root, destination);
         var orchestrator = new BackupOrchestrator(root, destination, null, "Password123!", scanner: scanner, writer: new ArchiveWriter());
 
-        var result = await orchestrator.RunOnceAsync(DateTimeOffset.UtcNow, manualSnapshot: false, CancellationToken.None);
+        var result = await orchestrator.RunOnceAsync(new DateTimeOffset(2026, 8, 29, 12, 0, 0, TimeSpan.Zero), manualSnapshot: false, CancellationToken.None);
 
         Assert.True(result.CreatedArchive);
         Assert.Equal(ArchiveType.Incremental, result.ArchiveType);
