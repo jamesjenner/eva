@@ -1,0 +1,29 @@
+<Window x:Class="EVA.App.ListSnapshotWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="List snapshot content"
+        Width="900" Height="600" WindowStartupLocation="CenterOwner">
+    <Grid Margin="12">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="1.2*" />
+            <ColumnDefinition Width="1.5*" />
+        </Grid.ColumnDefinitions>
+
+        <GroupBox Header="Restore points" Grid.Column="0" Margin="0,0,8,0">
+            <ListView x:Name="RestorePointList" Margin="8" SelectionChanged="RestorePointList_SelectionChanged">
+                <ListView.View>
+                    <GridView>
+                        <GridViewColumn Header="Date/time" DisplayMemberBinding="CreatedUtc" Width="170" />
+                        <GridViewColumn Header="Type" DisplayMemberBinding="ArchiveType" Width="90" />
+                        <GridViewColumn Header="Size" DisplayMemberBinding="ArchiveSize" Width="90" />
+                        <GridViewColumn Header="Chain" DisplayMemberBinding="ChainStatus" Width="90" />
+                    </GridView>
+                </ListView.View>
+            </ListView>
+        </GroupBox>
+
+        <GroupBox Header="Reconstructed contents" Grid.Column="1">
+            <TreeView x:Name="ContentTree" Margin="8" />
+        </GroupBox>
+    </Grid>
+</Window>

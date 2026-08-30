@@ -1,0 +1,51 @@
+<Window x:Class="EVA.App.RestoreSnapshotWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Restore snapshot"
+        Width="820" Height="560" WindowStartupLocation="CenterOwner">
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="1.25*" />
+            <ColumnDefinition Width="1.1*" />
+        </Grid.ColumnDefinitions>
+
+        <GroupBox Header="Available restore points" Grid.Row="0" Grid.Column="0" Margin="0,0,10,0">
+            <ListView x:Name="RestorePointList" Margin="8" SelectionChanged="RestorePointList_SelectionChanged">
+                <ListView.View>
+                    <GridView>
+                        <GridViewColumn Header="Date/time" DisplayMemberBinding="CreatedUtc" Width="170" />
+                        <GridViewColumn Header="Type" DisplayMemberBinding="ArchiveType" Width="90" />
+                        <GridViewColumn Header="Chain" DisplayMemberBinding="ChainStatus" Width="110" />
+                    </GridView>
+                </ListView.View>
+            </ListView>
+        </GroupBox>
+
+        <GroupBox Header="Restore details" Grid.Row="0" Grid.Column="1">
+            <StackPanel Margin="8">
+                <TextBlock Text="Selected restore point" FontWeight="Bold" Margin="0,0,0,4" />
+                <TextBox x:Name="SelectedPointText" IsReadOnly="True" Margin="0,0,0,12" />
+
+                <TextBlock Text="Restore destination" FontWeight="Bold" Margin="0,0,0,4" />
+                <StackPanel Orientation="Horizontal">
+                    <TextBox x:Name="DestinationText" Width="220" />
+                    <Button Margin="8,0,0,0" Click="BrowseDestination_Click">Browse</Button>
+                </StackPanel>
+
+                <TextBlock x:Name="WarningText" Margin="0,12,0,0" TextWrapping="Wrap" Foreground="DarkRed" />
+
+                <CheckBox x:Name="ConfirmRestoreCheck" Margin="0,18,0,0">I confirm this restore will not overwrite the source directory.</CheckBox>
+            </StackPanel>
+        </GroupBox>
+
+        <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+            <Button Width="120" Margin="0,0,8,0" Click="Restore_Click">Restore</Button>
+            <Button Width="120" Click="Close_Click">Close</Button>
+        </StackPanel>
+    </Grid>
+</Window>
