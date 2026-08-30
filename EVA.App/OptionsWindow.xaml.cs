@@ -74,7 +74,8 @@ public partial class OptionsWindow : Window
 
     private void ChangePassword_Click(object sender, RoutedEventArgs e)
     {
-        var dialog = new PasswordChangeDialog();
+        var isFirstRun = !PasswordStore.HasStoredPassword();
+        var dialog = new PasswordChangeDialog(isFirstRun);
         dialog.Owner = this;
         dialog.ShowDialog();
     }
