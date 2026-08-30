@@ -1,0 +1,14 @@
+<suki:SukiWindow xmlns="https://github.com/avaloniaui"
+                 xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                 xmlns:suki="clr-namespace:SukiUI.Controls;assembly=SukiUI"
+                 x:Class="EVA.App.MainWindow"
+                 Title="EVA"
+                 Width="1"
+                 Height="1"
+                 ShowInTaskbar="False"
+                 CanResize="False"
+                 ShowActivated="False"
+                 IsVisible="False"
+                 WindowStartupLocation="CenterScreen">
+    <Grid />
+</suki:SukiWindow>

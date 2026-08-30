@@ -1,0 +1,119 @@
+<suki:SukiWindow 
+        xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:suki="clr-namespace:SukiUI.Controls;assembly=SukiUI"
+        x:Class="EVA.App.OptionsWindow"
+        Title="EVA Options"
+        Width="780"
+        Height="620"
+        WindowStartupLocation="CenterOwner"
+        CanResize="True">
+    <suki:SukiWindow.Hosts>
+        <suki:SukiDialogHost Name="DialogHost"/>
+    </suki:SukiWindow.Hosts>
+    <Grid Margin="12" RowDefinitions="*,Auto" RowSpacing="12">
+        <TabControl Grid.Row="0">
+            <TabItem Header="Configuration">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Spacing="12" Margin="10" Grid.IsSharedSizeScope="True">
+                        <TextBlock Classes="h4" Margin="0,0,0,4">Backup</TextBlock>
+                        <Grid RowDefinitions="Auto,Auto,Auto" ColumnSpacing="8" RowSpacing="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" SharedSizeGroup="LabelCol" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="80" />
+                            </Grid.ColumnDefinitions>                                
+                            <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center">Source directory</TextBlock>
+                            <TextBox x:Name="SourceDirectoryText" Grid.Row="0" Grid.Column="1" />
+                            <Button x:Name="BrowseSourceButton" Grid.Row="0" Grid.Column="2" MinWidth="80" Padding="12,6" Click="BrowseSource_Click">Browse</Button>
+
+                            <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center">Backup interval</TextBlock>
+                            <ComboBox x:Name="BackupIntervalCombo" Grid.Row="1" Grid.Column="1" HorizontalAlignment="Stretch" Margin="-6,0,-6,0" >
+                                <ComboBoxItem>5 minutes</ComboBoxItem>
+                                <ComboBoxItem>10 minutes</ComboBoxItem>
+                                <ComboBoxItem>15 minutes</ComboBoxItem>
+                                <ComboBoxItem>30 minutes</ComboBoxItem>
+                                <ComboBoxItem>60 minutes</ComboBoxItem>
+                            </ComboBox>
+
+                            <TextBlock Grid.Row="2" Grid.Column="0" VerticalAlignment="Center">Snapshot frequency</TextBlock>
+                            <ComboBox x:Name="SnapshotFrequencyCombo" Grid.Row="2" Grid.Column="1" HorizontalAlignment="Stretch" Margin="-6,0,-6,0" >
+                                <ComboBoxItem>Daily</ComboBoxItem>
+                                <ComboBoxItem>Weekly</ComboBoxItem>
+                                <ComboBoxItem>Monthly</ComboBoxItem>
+                            </ComboBox>
+                        </Grid>
+                        <TextBlock Classes="h4" Margin="0,16,0,4">Destinations</TextBlock>
+                        <Grid RowDefinitions="Auto,Auto,Auto" ColumnSpacing="8" RowSpacing="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" SharedSizeGroup="LabelCol" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="80" />
+                            </Grid.ColumnDefinitions>                                
+                            <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center">Primary archive directory</TextBlock>
+                            <TextBox Grid.Row="0" Grid.Column="1" x:Name="PrimaryDestinationText" />
+                            <Button Grid.Row="0" Grid.Column="2" x:Name="BrowsePrimaryButton" MinWidth="80" Padding="12,6" Click="BrowsePrimary_Click">Browse</Button>
+
+                            <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center">Secondary archive directory</TextBlock>
+                            <TextBox Grid.Row="1" Grid.Column="1" x:Name="SecondaryDestinationText" />
+                            <Button Grid.Row="1" Grid.Column="2" x:Name="BrowseSecondaryButton" MinWidth="80" Padding="12,6" Click="BrowseSecondary_Click">Browse</Button>
+
+                            <CheckBox Grid.Row="2" Grid.Column="1" x:Name="EnableSecondaryDestinationCheck" >Enable secondary destination</CheckBox>
+                        </Grid>
+
+                        <TextBlock Classes="h4" Margin="0,16,0,4">Retention</TextBlock>
+                        <Grid RowDefinitions="Auto,Auto,Auto,Auto" ColumnSpacing="8" RowSpacing="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" SharedSizeGroup="LabelCol" />
+                                <ColumnDefinition Width="120" />
+                                <ColumnDefinition Width="120" />
+                                <ColumnDefinition Width="80" />
+                            </Grid.ColumnDefinitions>                                
+                            <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center">Incremental archives retention</TextBlock>
+                            <TextBox Grid.Row="0" Grid.Column="1" x:Name="IncrementalRetentionText" />
+                            <TextBlock Grid.Row="0" Grid.Column="2" VerticalAlignment="Center">days</TextBlock>
+
+                            <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center">Weekly snapshots retention</TextBlock>
+                            <TextBox Grid.Row="1" Grid.Column="1" x:Name="WeeklyRetentionText" />
+                            <TextBlock Grid.Row="1" Grid.Column="2" VerticalAlignment="Center">days</TextBlock>
+
+                            <TextBlock Grid.Row="2" Grid.Column="0" VerticalAlignment="Top" Margin="0,4,0,0">Monthly snapshots retention</TextBlock>
+                            <StackPanel Grid.Row="2" Grid.Column="1" Spacing="6" Margin="0,4,0,0">
+                                <RadioButton x:Name="MonthlyRetentionForeverRadio"
+                                            GroupName="MonthlyRetention"
+                                            IsChecked="True">Forever</RadioButton>
+                                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                    <RadioButton x:Name="MonthlyRetentionCustomRadio"
+                                                GroupName="MonthlyRetention">Number of days</RadioButton>
+                                    <TextBox x:Name="MonthlyRetentionDaysText"
+                                            Width="80"
+                                            IsEnabled="{Binding #MonthlyRetentionCustomRadio.IsChecked}" />
+                                </StackPanel>
+                            </StackPanel>
+                        </Grid>
+
+                        <TextBlock Classes="h4" Margin="0,16,0,4">Security</TextBlock>
+                        <Grid RowDefinitions="Auto,Auto,Auto" ColumnSpacing="8" RowSpacing="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" SharedSizeGroup="LabelCol" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="80" />
+                            </Grid.ColumnDefinitions>                                
+                            <TextBlock Grid.Row="0" Grid.Column="0" >Encryption algorithm</TextBlock>
+                            <TextBlock Grid.Row="0" Grid.Column="1" >AES-256-GCM</TextBlock>
+                            <Button Grid.Row="1" Grid.Column="1" x:Name="ChangePasswordButton" HorizontalAlignment="Left" Padding="12,6" Click="ChangePassword_Click">Change encryption password</Button>
+                        </Grid>
+
+                        <TextBlock Classes="h4" Margin="0,16,0,4">Startup</TextBlock>
+                        <CheckBox x:Name="StartWithWindowsCheck">Start EVA with Windows</CheckBox>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+        </TabControl>
+
+        <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+            <Button x:Name="SaveButton" Width="120" Padding="12,6" Click="Save_Click">Save</Button>
+            <Button x:Name="CancelButton" Width="120" Padding="12,6" Click="Cancel_Click">Cancel</Button>
+        </StackPanel>
+    </Grid>
+</suki:SukiWindow>

@@ -56,8 +56,12 @@ public static class PasswordStore
         try
         {
             var encrypted = File.ReadAllBytes(filePath);
-            var decrypted = ProtectedData.Unprotect(encrypted, null, DataProtectionScope.CurrentUser);
-            return Encoding.UTF8.GetString(decrypted);
+            if (TryWindowsUnprotect(encrypted, out var decrypted))
+            {
+                return Encoding.UTF8.GetString(decrypted);
+            }
+
+            return DecryptText(encrypted);
         }
         catch
         {
@@ -72,8 +76,131 @@ public static class PasswordStore
         Directory.CreateDirectory(directory);
 
         var bytes = Encoding.UTF8.GetBytes(password);
-        var protectedBytes = ProtectedData.Protect(bytes, null, DataProtectionScope.CurrentUser);
+        var protectedBytes = TryWindowsProtect(bytes, out var windowsProtected)
+            ? windowsProtected
+            : EncryptText(bytes);
+
         File.WriteAllBytes(filePath, protectedBytes);
+    }
+
+    private static bool TryWindowsProtect(byte[] plainBytes, out byte[] protectedBytes)
+    {
+        protectedBytes = Array.Empty<byte>();
+
+        if (!OperatingSystem.IsWindows())
+        {
+            return false;
+        }
+
+        var protectedDataType = Type.GetType("System.Security.Cryptography.ProtectedData, System.Security.Cryptography.ProtectedData");
+        if (protectedDataType is null)
+        {
+            return false;
+        }
+
+        var dataProtectionScopeType = Type.GetType("System.Security.Cryptography.DataProtectionScope, System.Security.Cryptography.ProtectedData");
+        if (dataProtectionScopeType is null)
+        {
+            return false;
+        }
+
+        var protectMethod = protectedDataType.GetMethod("Protect", new[] { typeof(byte[]), typeof(byte[]), dataProtectionScopeType });
+        if (protectMethod is null)
+        {
+            return false;
+        }
+
+        try
+        {
+            var scopeValue = Enum.Parse(dataProtectionScopeType, "CurrentUser");
+            protectedBytes = (byte[])protectMethod.Invoke(null, new object[] { plainBytes, null!, scopeValue })!;
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool TryWindowsUnprotect(byte[] protectedBytes, out byte[] plainBytes)
+    {
+        plainBytes = Array.Empty<byte>();
+
+        if (!OperatingSystem.IsWindows())
+        {
+            return false;
+        }
+
+        var protectedDataType = Type.GetType("System.Security.Cryptography.ProtectedData, System.Security.Cryptography.ProtectedData");
+        if (protectedDataType is null)
+        {
+            return false;
+        }
+
+        var dataProtectionScopeType = Type.GetType("System.Security.Cryptography.DataProtectionScope, System.Security.Cryptography.ProtectedData");
+        if (dataProtectionScopeType is null)
+        {
+            return false;
+        }
+
+        var unprotectMethod = protectedDataType.GetMethod("Unprotect", new[] { typeof(byte[]), typeof(byte[]), dataProtectionScopeType });
+        if (unprotectMethod is null)
+        {
+            return false;
+        }
+
+        try
+        {
+            var scopeValue = Enum.Parse(dataProtectionScopeType, "CurrentUser");
+            plainBytes = (byte[])unprotectMethod.Invoke(null, new object[] { protectedBytes, null!, scopeValue })!;
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static byte[] EncryptText(byte[] plainBytes)
+    {
+        var key = SHA256.HashData(Encoding.UTF8.GetBytes(GetAesKeySeed()));
+        var nonce = RandomNumberGenerator.GetBytes(12);
+        var ciphertext = new byte[plainBytes.Length];
+        var tag = new byte[16];
+
+        using var aes = new AesGcm(key, 16);
+        aes.Encrypt(nonce, plainBytes, ciphertext, tag);
+
+        var payload = new byte[nonce.Length + ciphertext.Length + tag.Length];
+        Buffer.BlockCopy(nonce, 0, payload, 0, nonce.Length);
+        Buffer.BlockCopy(ciphertext, 0, payload, nonce.Length, ciphertext.Length);
+        Buffer.BlockCopy(tag, 0, payload, nonce.Length + ciphertext.Length, tag.Length);
+        return payload;
+    }
+
+    private static string DecryptText(byte[] protectedBytes)
+    {
+        var key = SHA256.HashData(Encoding.UTF8.GetBytes(GetAesKeySeed()));
+        var nonce = new byte[12];
+        var ciphertextLength = protectedBytes.Length - nonce.Length - 16;
+        var ciphertext = new byte[ciphertextLength];
+        var tag = new byte[16];
+
+        Buffer.BlockCopy(protectedBytes, 0, nonce, 0, nonce.Length);
+        Buffer.BlockCopy(protectedBytes, nonce.Length, ciphertext, 0, ciphertext.Length);
+        Buffer.BlockCopy(protectedBytes, nonce.Length + ciphertext.Length, tag, 0, tag.Length);
+
+        using var aes = new AesGcm(key, 16);
+        var decrypted = new byte[ciphertext.Length];
+        aes.Decrypt(nonce, ciphertext, tag, decrypted);
+        return Encoding.UTF8.GetString(decrypted);
+    }
+
+    private static string GetAesKeySeed()
+    {
+        var user = Environment.UserName ?? "eva-user";
+        var appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        return $"EVA.PasswordStore:{user}:{appData}";
     }
 
     private static void SaveCredential(string password)
