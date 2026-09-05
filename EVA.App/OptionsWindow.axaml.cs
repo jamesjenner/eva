@@ -108,7 +108,7 @@ public partial class OptionsWindow : SukiWindow
 
     private async void ChangePassword_Click(object? sender, RoutedEventArgs e)
     {
-        var dialog = new PasswordChangeDialog(DialogManager);
+        var dialog = new PasswordChangeDialog();
         await dialog.ShowDialog(this);
     }
 

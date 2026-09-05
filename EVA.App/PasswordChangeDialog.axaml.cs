@@ -1,26 +1,24 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
-using Avalonia.Controls.Notifications;
 using Avalonia.Media;
 using SukiUI.Controls;
-using SukiUI.Dialogs;
 
 namespace EVA.App;
 
 public partial class PasswordChangeDialog : SukiWindow
 {
-    private readonly ISukiDialogManager _dialogManager = new SukiDialogManager();
+    private readonly bool _isFirstRun;
 
-    // Required by Avalonia XAML loader
-    public PasswordChangeDialog() : this(new SukiDialogManager())
-    {
-    }
-
-    public PasswordChangeDialog(ISukiDialogManager dialogManager)
+    public PasswordChangeDialog()
     {
         InitializeComponent();
-        _dialogManager = dialogManager;
+        _isFirstRun = !PasswordStore.HasStoredPassword();
+        CurrentPasswordLabel.IsVisible = !_isFirstRun;
+        CurrentPasswordText.IsVisible = !_isFirstRun;
+        CurrentPasswordToggle.IsVisible = !_isFirstRun;
+        CurrentPasswordError.IsVisible = !_isFirstRun;
+        Title = _isFirstRun ? "Set encryption password" : "Change encryption password";
         NewPasswordText.PropertyChanged += NewPasswordText_PropertyChanged;
     }
 
@@ -76,30 +74,77 @@ public partial class PasswordChangeDialog : SukiWindow
         return Math.Min(lengthScore + varietyBonus, 100);
     }
 
-    private async void Save_Click(object? sender, RoutedEventArgs e)
+    private void Save_Click(object? sender, RoutedEventArgs e)
     {
-        var newPassword = NewPasswordText.Text?.Trim() ?? string.Empty;
-        var confirmPassword = ConfirmPasswordText.Text?.Trim() ?? string.Empty;
+        if (!Validate()) return;
+        PasswordStore.SavePassword(NewPasswordText.Text!.Trim());
+        Close();
+    }
 
-        if (string.IsNullOrWhiteSpace(newPassword) || newPassword != confirmPassword)
+    private bool Validate()
+    {
+        var valid = true;
+        var errors = new List<string>();
+
+        NewPasswordError.Opacity = 0;
+        CurrentPasswordError.Opacity = 0;
+        ConfirmPasswordError.Opacity = 0;
+        AcknowledgeError.Opacity = 0;
+        ErrorSummaryBorder.Opacity = 0;
+
+        if (!_isFirstRun)
         {
-            await ShowMessageAsync("Password mismatch", "The new password and confirmation must match.");
-            _dialogManager.CreateDialog()
-                    .WithActionButton("OK", _ => { }, true)
-                    .WithTitle("Password mismatch")
-                    .WithContent("The new password and confirmation must match.")
-                    .TryShow();            
-            return;
+            var storedPassword = PasswordStore.GetPassword(PasswordStore.PasswordReference);
+            if (storedPassword is null || storedPassword != CurrentPasswordText.Text?.Trim())
+            {
+                CurrentPasswordError.Text = "Current password is incorrect";
+                CurrentPasswordError.Opacity = 1;
+                errors.Add("Current password is incorrect");
+                valid = false;
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(NewPasswordText.Text))
+        {
+            NewPasswordError.Text = "A new password is required";
+            NewPasswordError.Opacity = 1;
+            errors.Add("New password is required");
+            valid = false;
+        } else if(NewPasswordText.Text.Length < 16)
+        {
+            NewPasswordError.Text = "Password must be at least 16 characters";
+            NewPasswordError.Opacity = 1;
+            errors.Add("New password must be at least 16 characters");
+            valid = false;
+        }
+        else if (string.IsNullOrWhiteSpace(ConfirmPasswordText.Text))
+        {
+            ConfirmPasswordError.Text = "Please confirm the new password";
+            ConfirmPasswordError.Opacity = 1;
+            errors.Add("A confirmation password is required");
+            valid = false;
+        }
+        else if (NewPasswordText.Text != ConfirmPasswordText.Text)
+        {
+            ConfirmPasswordError.Text = "Must match the new password";
+            ConfirmPasswordError.Opacity = 1;
+            errors.Add("Passwords do not match");
+            valid = false;
         }
 
         if (AcknowledgeWarningCheck.IsChecked != true)
         {
-            await ShowMessageAsync("Confirmation required", "Please confirm the warning before changing the archive password.");
-            return;
+            AcknowledgeError.Opacity = 1;
+            errors.Add("Please acknowledge to continue");
+            valid = false;
         }
 
-        PasswordStore.SavePassword(newPassword);
-        Close();
+        if (!valid)
+        {
+            ErrorSummaryBorder.Opacity = 1;
+        }
+
+        return valid;
     }
 
     private void Cancel_Click(object? sender, RoutedEventArgs e)
@@ -118,31 +163,5 @@ public partial class PasswordChangeDialog : SukiWindow
         textBox.RevealPassword = !textBox.RevealPassword;
         hiddenIcon.IsVisible = !textBox.RevealPassword;
         visibleIcon.IsVisible = textBox.RevealPassword;
-    }
-
-    private async Task ShowMessageAsync(string title, string message)
-    {
-        var dialog = new Window
-        {
-            Title = title,
-            Width = 360,
-            Height = 180,
-            WindowStartupLocation = WindowStartupLocation.CenterOwner
-        };
-        var okButton = new Button { Content = "OK", Width = 90, HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right };
-        okButton.Click += (_, _) => dialog.Close();
-        dialog.Content = new Grid
-        {
-            Margin = new Thickness(12),
-            RowDefinitions = new RowDefinitions("*,Auto"),
-            RowSpacing = 12,
-            Children =
-            {
-                new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap },
-                okButton
-            }
-        };
-        Grid.SetRow(okButton, 1);
-        await dialog.ShowDialog<object?>(this);
     }
 }

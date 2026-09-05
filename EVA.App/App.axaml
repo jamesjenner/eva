@@ -6,4 +6,9 @@
     <Application.Styles>
         <suki:SukiTheme ThemeColor="Blue" />
     </Application.Styles>
+    <Application.Resources>
+        <SolidColorBrush x:Key="EVAErrorBrush" Color="Crimson" />
+        <SolidColorBrush x:Key="EVAWarningBrush" Color="Orange" />
+        <SolidColorBrush x:Key="EVASuccessBrush" Color="MediumSeaGreen" />
+    </Application.Resources>
 </Application>
