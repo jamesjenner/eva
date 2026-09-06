@@ -7,8 +7,21 @@ using Xunit;
 
 namespace EVA.Tests;
 
-public sealed class ArchiveWriterTests
+public sealed class ArchiveWriterTests : IDisposable
 {
+    private readonly List<string> _tempDirectories = [];
+
+    public void Dispose()
+    {
+        foreach (var directory in _tempDirectories)
+        {
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+        }
+    }
+
     [Fact]
     public async Task ValidSnapshotArchiveCanBeWrittenAndOutputFileExists()
     {
@@ -173,14 +186,15 @@ public sealed class ArchiveWriterTests
         Assert.NotEmpty(aadBytes);
     }
 
-    private static string CreateTempDirectory()
+    private string CreateTempDirectory()
     {
-        var path = Path.Combine(Path.GetTempPath(), "eva-tests", Guid.NewGuid().ToString("N"));
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
         Directory.CreateDirectory(path);
+        _tempDirectories.Add(path);
         return path;
     }
 
-    private static string CreateArchivePath()
+    private string CreateArchivePath()
     {
         return Path.Combine(CreateTempDirectory(), "archive.eva");
     }

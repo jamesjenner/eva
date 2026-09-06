@@ -1,4 +1,5 @@
 using System.Text;
+using EVA.App;
 using EVA.Core;
 using EVA.Core.Models;
 using EVA.Infrastructure;
@@ -6,8 +7,21 @@ using Xunit;
 
 namespace EVA.Tests;
 
-public sealed class ConfigStoreTests
+public sealed class ConfigStoreTests : IDisposable
 {
+    private readonly List<string> _tempRoots = [];
+
+    public void Dispose()
+    {
+        foreach (var root in _tempRoots)
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
     [Fact]
     public async Task DefaultConfigurationIsReturnedWhenNoConfigFileExists()
     {
@@ -37,7 +51,7 @@ public sealed class ConfigStoreTests
             SnapshotFrequency = SnapshotFrequency.Daily,
             RetentionPolicy = new RetentionPolicy { IncrementalRetentionDays = 14, WeeklySnapshotRetentionDays = 180, MonthlySnapshotRetentionDays = null },
             StartWithWindows = true,
-            PasswordReference = "credential:eva-test"
+            PasswordReference = PasswordStore.PasswordReference
         };
 
         Directory.CreateDirectory(config.SourceDirectory);
@@ -84,7 +98,7 @@ public sealed class ConfigStoreTests
             SecondaryDestinationEnabled = false,
             BackupIntervalMinutes = 15,
             SnapshotFrequency = SnapshotFrequency.Weekly,
-            PasswordReference = "credential:eva-local"
+            PasswordReference = PasswordStore.PasswordReference
         };
 
         Directory.CreateDirectory(config.SourceDirectory);
@@ -97,16 +111,30 @@ public sealed class ConfigStoreTests
         Assert.DoesNotContain("plaintext", json, StringComparison.OrdinalIgnoreCase);
     }
 
-    private static string CreateTempRoot()
+    private string CreateTempRoot()
     {
-        var path = Path.Combine(Path.GetTempPath(), "eva-config-tests", Guid.NewGuid().ToString("N"));
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
         Directory.CreateDirectory(path);
+        _tempRoots.Add(path);
         return path;
     }
 }
 
-public sealed class ConfigValidatorTests
+public sealed class ConfigValidatorTests : IDisposable
 {
+    private readonly List<string> _tempRoots = [];
+
+    public void Dispose()
+    {
+        foreach (var root in _tempRoots)
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
     [Fact]
     public void AFullyValidConfigurationPassesValidation()
     {
@@ -242,7 +270,7 @@ public sealed class ConfigValidatorTests
         Assert.Null(ex);
     }
 
-    private static BackupConfiguration CreateValidConfiguration()
+    private BackupConfiguration CreateValidConfiguration()
     {
         var root = CreateTempRoot();
         var source = Path.Combine(root, "source");
@@ -264,15 +292,16 @@ public sealed class ConfigValidatorTests
                 WeeklySnapshotRetentionDays = 365,
                 MonthlySnapshotRetentionDays = null
             },
-            PasswordReference = "credential:eva-valid",
+            PasswordReference = PasswordStore.PasswordReference,
             StartWithWindows = false
         };
     }
 
-    private static string CreateTempRoot()
+    private string CreateTempRoot()
     {
-        var path = Path.Combine(Path.GetTempPath(), "eva-config-tests", Guid.NewGuid().ToString("N"));
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
         Directory.CreateDirectory(path);
+        _tempRoots.Add(path);
         return path;
     }
 }

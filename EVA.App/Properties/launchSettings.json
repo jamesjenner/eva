@@ -1,0 +1,7 @@
+{
+  "profiles": {
+    "EVA.App": {
+      "commandName": "Project"
+    }
+  }
+}

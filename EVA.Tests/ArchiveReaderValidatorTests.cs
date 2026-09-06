@@ -10,8 +10,21 @@ using Xunit;
 
 namespace EVA.Tests;
 
-public sealed class ArchiveReaderValidatorTests
+public sealed class ArchiveReaderValidatorTests : IDisposable
 {
+    private readonly List<string> _tempDirectories = [];
+
+    public void Dispose()
+    {
+        foreach (var directory in _tempDirectories)
+        {
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+        }
+    }
+
     [Fact]
     public async Task ValidArchiveWrittenByWriterCanBeReadBackCorrectly()
     {
@@ -247,14 +260,15 @@ public sealed class ArchiveReaderValidatorTests
         await Assert.ThrowsAnyAsync<Exception>(() => reader.ReadManifestAsync(archivePath, "Password123!"));
     }
 
-    private static string CreateTempDirectory()
+    private string CreateTempDirectory()
     {
-        var path = Path.Combine(Path.GetTempPath(), "eva-tests", Guid.NewGuid().ToString("N"));
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
         Directory.CreateDirectory(path);
+        _tempDirectories.Add(path);
         return path;
     }
 
-    private static string WriteArchiveForValidation()
+    private string WriteArchiveForValidation()
     {
         var dir = CreateTempDirectory();
         var path = Path.Combine(dir, "snapshot.eva");
@@ -263,7 +277,7 @@ public sealed class ArchiveReaderValidatorTests
         return path;
     }
 
-    private static void WriteArchive(string dir, ArchiveManifest manifest, string fileName)
+    private void WriteArchive(string dir, ArchiveManifest manifest, string fileName)
     {
         var path = Path.Combine(dir, fileName);
         var writer = new ArchiveWriter();

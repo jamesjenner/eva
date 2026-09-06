@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace EVA.Core.Models;
 
 public enum SnapshotFrequency
@@ -14,29 +16,13 @@ public sealed class BackupConfiguration
     public string? SecondaryDestination { get; set; }
     public bool SecondaryDestinationEnabled { get; set; }
     public int BackupIntervalMinutes { get; set; } = 15;
+    [JsonConverter(typeof(JsonStringEnumConverter))]
     public SnapshotFrequency SnapshotFrequency { get; set; } = SnapshotFrequency.Weekly;
     public RetentionPolicy RetentionPolicy { get; set; } = new();
     public bool StartWithWindows { get; set; }
     public string? PasswordReference { get; set; }
 
-    public string PrimaryArchiveDirectory
-    {
-        get => PrimaryDestination;
-        set => PrimaryDestination = value;
-    }
-
-    public string? SecondaryArchiveDirectory
-    {
-        get => SecondaryDestination;
-        set => SecondaryDestination = value;
-    }
-
-    public bool EnableSecondaryDestination
-    {
-        get => SecondaryDestinationEnabled;
-        set => SecondaryDestinationEnabled = value;
-    }
-
+    [JsonIgnore]
     public TimeSpan BackupInterval
     {
         get => TimeSpan.FromMinutes(BackupIntervalMinutes);

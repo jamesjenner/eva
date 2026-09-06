@@ -4,8 +4,21 @@ using Xunit;
 
 namespace EVA.Tests;
 
-public sealed class SourceScannerTests
+public sealed class SourceScannerTests : IDisposable
 {
+    private readonly List<string> _tempDirectories = [];
+
+    public void Dispose()
+    {
+        foreach (var directory in _tempDirectories)
+        {
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+        }
+    }
+
     [Fact]
     public async Task NewFileInSourceDirectoryIsDetectedAsAdded()
     {
@@ -98,11 +111,12 @@ public sealed class SourceScannerTests
 
         await File.WriteAllTextAsync(filePath, "one");
 
-        var scanner = new SourceScanner(root, new LocalScanStateIndex(root), verificationInterval: TimeSpan.FromMinutes(1));
+        // start writing BEFORE the scanner starts
+        var writeStarted = new TaskCompletionSource();
         var writerTask = Task.Run(async () =>
         {
-            await Task.Delay(200);
             using var stream = File.Open(filePath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
+            writeStarted.SetResult(); // signal that writing has started
             var buffer = new byte[1024];
             for (var i = 0; i < 20; i++)
             {
@@ -112,6 +126,10 @@ public sealed class SourceScannerTests
             }
         });
 
+        // wait until writing has actually started before scanning
+        await writeStarted.Task;
+
+        var scanner = new SourceScanner(root, new LocalScanStateIndex(root), verificationInterval: TimeSpan.FromMinutes(1));
         var result = await scanner.ScanAsync(root, CancellationToken.None);
         await writerTask;
 
@@ -119,7 +137,7 @@ public sealed class SourceScannerTests
         Assert.Single(result.UnstableFiles);
         Assert.Equal("unstable.txt", result.UnstableFiles[0].RelativePath);
     }
-
+    
     [Fact]
     public async Task UnreadableFileIsReportedAsErrorAndNotMarkedAsSuccessfullyScanned()
     {
@@ -253,10 +271,11 @@ public sealed class SourceScannerTests
         Assert.Equal("archive-me.txt", snapshot.Files.Keys.First());
     }
 
-    private static string CreateTempDirectory()
+    private string CreateTempDirectory()
     {
-        var path = Path.Combine(Path.GetTempPath(), "eva-scan-tests", Guid.NewGuid().ToString("N"));
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
         Directory.CreateDirectory(path);
+        _tempDirectories.Add(path);
         return path;
     }
 

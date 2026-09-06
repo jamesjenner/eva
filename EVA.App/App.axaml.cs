@@ -5,6 +5,7 @@ using Avalonia.Markup.Xaml;
 using SukiUI;
 using SukiUI.Enums;
 using Avalonia.Styling;
+using ConfigStore = EVA.Infrastructure.ConfigStore;
 
 namespace EVA.App;
 
@@ -27,19 +28,28 @@ public partial class App : Application
             _theme = SukiTheme.GetInstance();
             _theme.ChangeBaseTheme(ThemeVariant.Dark);
 
-            // var mainWindow = new MainWindow
-            // {
-            //     ShowInTaskbar = false,
-            //     WindowStartupLocation = WindowStartupLocation.CenterScreen,
-            //     CanResize = false,
-            //     IsVisible = false
-            // };
-
-            // desktop.MainWindow = mainWindow;
             CreateTrayIcon();
+
+            if (IsFirstRun()) 
+            {
+                var optionsWindow = new OptionsWindow();
+                optionsWindow.Show();
+            }
         }
 
         base.OnFrameworkInitializationCompleted();
+    }
+
+    private static bool IsFirstRun()
+    {
+        var configStore = new ConfigStore();
+        var configExists = configStore.ExistsAsync().GetAwaiter().GetResult();
+        // JGJ Debugging
+        Console.Error.WriteLine("=== EVA STARTUP DIAGNOSTICS ===");
+        Console.Error.WriteLine($"Config exists: {configExists}");
+        Console.Error.WriteLine($"Has password: {PasswordStore.HasStoredPassword()}");
+
+        return !configExists || !PasswordStore.HasStoredPassword();
     }
 
     private void CreateTrayIcon()

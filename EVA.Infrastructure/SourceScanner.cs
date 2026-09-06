@@ -241,35 +241,24 @@ public sealed class SourceScanner : ISourceScanner
 
     private static async Task<bool> WaitForFileStabilityAsync(string filePath, CancellationToken cancellationToken)
     {
-        var first = GetFileSnapshot(filePath);
-        if (first is null)
-        {
-            return false;
-        }
+        var first = ComputeSha256(filePath);
+        if (first is null) return false;
 
         for (var attempt = 0; attempt < MaxStabilityChecks; attempt++)
         {
             cancellationToken.ThrowIfCancellationRequested();
             await Task.Delay(StabilityWaitMilliseconds, cancellationToken).ConfigureAwait(false);
 
-            var second = GetFileSnapshot(filePath);
-            if (second is null)
-            {
-                return false;
-            }
+            var second = ComputeSha256(filePath);
+            if (second is null) return false;
 
-            var stable = first.Value.Length == second.Value.Length && first.Value.LastWriteTimeUtc == second.Value.LastWriteTimeUtc;
-            if (stable)
-            {
-                return true;
-            }
-
+            if (first == second) return true;
             first = second;
         }
 
         return false;
     }
-
+    
     private static (long Length, DateTimeOffset LastWriteTimeUtc)? GetFileSnapshot(string path)
     {
         try

@@ -91,8 +91,21 @@ public sealed class BackupSchedulerTests
     }
 }
 
-public sealed class BackupOrchestratorTests
+public sealed class BackupOrchestratorTests : IDisposable
 {
+    private readonly List<string> _tempDirectories = [];
+
+    public void Dispose()
+    {
+        foreach (var directory in _tempDirectories)
+        {
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+        }
+    }
+
     [Fact]
     public async Task NoArchiveIsCreatedWhenScannerReportsNoChanges()
     {
@@ -221,10 +234,11 @@ public sealed class BackupOrchestratorTests
         Assert.Single(snapshot.Files);
     }
 
-    private static string CreateTempDirectory()
+    private string CreateTempDirectory()
     {
-        var path = Path.Combine(Path.GetTempPath(), "eva-backup-tests", Guid.NewGuid().ToString("N"));
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
         Directory.CreateDirectory(path);
+        _tempDirectories.Add(path);
         return path;
     }
 
@@ -260,8 +274,21 @@ public sealed class BackupOrchestratorTests
     }
 }
 
-public sealed class SecondaryDestinationRetryQueueTests
+public sealed class SecondaryDestinationRetryQueueTests : IDisposable
 {
+    private readonly List<string> _tempDirectories = [];
+
+    public void Dispose()
+    {
+        foreach (var directory in _tempDirectories)
+        {
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+        }
+    }
+
     [Fact]
     public async Task ArchiveIsAddedToQueueWhenSecondaryCopyFails()
     {
@@ -315,10 +342,11 @@ public sealed class SecondaryDestinationRetryQueueTests
         Assert.Single(pending);
     }
 
-    private static string CreateTempDirectory()
+    private string CreateTempDirectory()
     {
-        var path = Path.Combine(Path.GetTempPath(), "eva-retry-tests", Guid.NewGuid().ToString("N"));
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
         Directory.CreateDirectory(path);
+        _tempDirectories.Add(path);
         return path;
     }
 }

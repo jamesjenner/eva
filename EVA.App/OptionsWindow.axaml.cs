@@ -36,7 +36,7 @@ public partial class OptionsWindow : SukiWindow
         SourceDirectoryText.Text = _configuration.SourceDirectory ?? string.Empty;
         PrimaryDestinationText.Text = _configuration.PrimaryDestination ?? string.Empty;
         SecondaryDestinationText.Text = _configuration.SecondaryDestination ?? string.Empty;
-        EnableSecondaryDestinationCheck.IsChecked = _configuration.EnableSecondaryDestination;
+        EnableSecondaryDestinationCheck.IsChecked = _configuration.SecondaryDestinationEnabled;
 
         IncrementalRetentionText.Text = _configuration.RetentionPolicy?.IncrementalRetentionDays.ToString() ?? "7";
         WeeklyRetentionText.Text = _configuration.RetentionPolicy?.WeeklySnapshotRetentionDays.ToString() ?? "365";
@@ -110,6 +110,12 @@ public partial class OptionsWindow : SukiWindow
     {
         var dialog = new PasswordChangeDialog();
         await dialog.ShowDialog(this);
+
+        // dialog has closed — check if password was set
+        if (PasswordStore.HasStoredPassword())
+        {
+            _configuration.PasswordReference = PasswordStore.PasswordReference;
+        }
     }
 
     private BackupConfiguration BuildConfigurationFromForm()

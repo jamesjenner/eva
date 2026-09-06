@@ -8,11 +8,18 @@ namespace EVA.App;
 public static class PasswordStore
 {
     public const int CRED_TYPE_GENERIC = 1;
-    public static string PasswordReference => "local:eva-password";
+    public static string PasswordReference => "EVA-EncryptionPassword";
 
     public static bool HasStoredPassword()
     {
-        return TryReadCredential(out _);
+        // return TryReadCredential(out _);
+        var credResult = TryReadCredential(out _);
+        var legacyPath = GetPasswordFilePath();
+        var legacyExists = File.Exists(legacyPath);
+        Console.Error.WriteLine($"HasStoredPassword: TryReadCredential={credResult}");
+        Console.Error.WriteLine($"HasStoredPassword: LegacyPath={legacyPath}");
+        Console.Error.WriteLine($"HasStoredPassword: LegacyFileExists={legacyExists}");
+        return credResult;
     }
 
     public static string? GetPassword(string? reference)
@@ -224,7 +231,9 @@ public static class PasswordStore
         };
 
         Marshal.Copy(passwordBytes, 0, nativeCredential.CredentialBlob, passwordBytes.Length);
-        CredWrite(ref nativeCredential, 0);
+        bool result = CredWrite(ref nativeCredential, 0);
+        int error = Marshal.GetLastWin32Error();
+        System.Diagnostics.Debug.WriteLine($"CredWrite result: {result}, error: {error}");
 
         Marshal.FreeCoTaskMem(nativeCredential.TargetName);
         Marshal.FreeCoTaskMem(nativeCredential.CredentialBlob);
