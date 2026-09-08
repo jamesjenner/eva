@@ -96,10 +96,18 @@ public sealed class SourceScanner : ISourceScanner
                 if (!await WaitForFileStabilityAsync(filePath, cancellationToken).ConfigureAwait(false))
                 {
                     result.UnstableFiles.Add(CreateFileEntry(relativePath, fileInfo, priorState.Sha256));
+                    _logger?.LogWarning($"File could not be hashed, treating as unstable: {relativePath}");
                     continue;
                 }
 
                 var currentHash = ComputeSha256(filePath);
+                if (currentHash is null)
+                {
+                    result.UnstableFiles.Add(CreateFileEntry(relativePath, fileInfo, priorState.Sha256));
+                    _logger?.LogWarning($"File could not be hashed, treating as unstable: {relativePath}");
+                    continue;
+                }
+
                 if (!metadataChanged && currentHash == priorState.Sha256)
                 {
                     result.StableFiles.Add(CreateFileEntry(relativePath, fileInfo, currentHash));
@@ -120,7 +128,7 @@ public sealed class SourceScanner : ISourceScanner
                     LastModifiedUtc = NormalizeUtcTimestamp(fileInfo.LastWriteTimeUtc),
                     Sha256 = currentHash
                 });
-
+                
                 continue;
             }
 
@@ -131,6 +139,11 @@ public sealed class SourceScanner : ISourceScanner
             }
 
             var sha256 = ComputeSha256(filePath);
+            if (sha256 is null)
+            {
+                result.UnstableFiles.Add(CreateFileEntry(relativePath, fileInfo));
+                continue;
+            }
             result.ConfirmedChanges.Add(new FileEntry
             {
                 RelativePath = relativePath,
@@ -138,7 +151,7 @@ public sealed class SourceScanner : ISourceScanner
                 FileSize = fileInfo.Length,
                 LastModifiedUtc = fileInfo.LastWriteTimeUtc,
                 Sha256 = sha256
-            });
+            });        
         }
 
         foreach (var knownEntry in previousState.Files)
@@ -229,7 +242,11 @@ public sealed class SourceScanner : ISourceScanner
         try
         {
             fileInfo = new FileInfo(path);
-            using var stream = File.OpenRead(path);
+            using var stream = new FileStream(
+                path,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.ReadWrite);
             return stream.CanRead;
         }
         catch
@@ -238,7 +255,7 @@ public sealed class SourceScanner : ISourceScanner
             return false;
         }
     }
-
+    
     private static async Task<bool> WaitForFileStabilityAsync(string filePath, CancellationToken cancellationToken)
     {
         var first = ComputeSha256(filePath);
@@ -322,11 +339,22 @@ public sealed class SourceScanner : ISourceScanner
         };
     }
 
-    private static string ComputeSha256(string filePath)
+    private static string? ComputeSha256(string filePath)
     {
-        using var sha256 = SHA256.Create();
-        using var stream = File.OpenRead(filePath);
-        var hash = sha256.ComputeHash(stream);
-        return Convert.ToHexString(hash).ToLowerInvariant();
+        try
+        {
+            using var sha256 = SHA256.Create();
+            using var stream = new FileStream(
+                filePath, 
+                FileMode.Open, 
+                FileAccess.Read, 
+                FileShare.ReadWrite);
+            var hash = sha256.ComputeHash(stream);
+            return Convert.ToHexString(hash).ToLowerInvariant();
+        }
+        catch
+        {
+            return null;
+        }
     }
 }
