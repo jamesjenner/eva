@@ -26,7 +26,7 @@ public sealed class SourceScannerTests : IDisposable
         var filePath = Path.Combine(root, "new.txt");
         await File.WriteAllTextAsync(filePath, "alpha");
 
-        var scanner = new SourceScanner(root, new LocalScanStateIndex(root));
+        var scanner = new SourceScanner(root, new LocalScanStateIndex(root, CreateTempDirectory()));
         var result = await scanner.ScanAsync(root, CancellationToken.None);
 
         Assert.Single(result.ConfirmedChanges);
@@ -41,7 +41,7 @@ public sealed class SourceScannerTests : IDisposable
         var filePath = Path.Combine(root, "data.txt");
         await File.WriteAllTextAsync(filePath, "before");
 
-        var state = new LocalScanStateIndex(root);
+        var state = new LocalScanStateIndex(root, CreateTempDirectory());
         var scanner = new SourceScanner(root, state);
         await scanner.UpdateStateAsync(new[]
         {
@@ -69,7 +69,7 @@ public sealed class SourceScannerTests : IDisposable
         var filePath = Path.Combine(root, "gone.txt");
         await File.WriteAllTextAsync(filePath, "gone");
 
-        var state = new LocalScanStateIndex(root);
+        var state = new LocalScanStateIndex(root, CreateTempDirectory());
         var scanner = new SourceScanner(root, state);
         await scanner.UpdateStateAsync(new[]
         {
@@ -96,7 +96,7 @@ public sealed class SourceScannerTests : IDisposable
         var root = CreateTempDirectory();
         Directory.CreateDirectory(Path.Combine(root, "empty"));
 
-        var scanner = new SourceScanner(root, new LocalScanStateIndex(root));
+        var scanner = new SourceScanner(root, new LocalScanStateIndex(root, CreateTempDirectory()));
         var result = await scanner.ScanAsync(root, CancellationToken.None);
 
         Assert.Single(result.EmptyDirectories);
@@ -129,7 +129,7 @@ public sealed class SourceScannerTests : IDisposable
         // wait until writing has actually started before scanning
         await writeStarted.Task;
 
-        var scanner = new SourceScanner(root, new LocalScanStateIndex(root), verificationInterval: TimeSpan.FromMinutes(1));
+        var scanner = new SourceScanner(root, new LocalScanStateIndex(root, CreateTempDirectory()), verificationInterval: TimeSpan.FromMinutes(1));
         var result = await scanner.ScanAsync(root, CancellationToken.None);
         await writerTask;
 
@@ -145,7 +145,7 @@ public sealed class SourceScannerTests : IDisposable
         var filePath = Path.Combine(root, "locked.txt");
         await File.WriteAllTextAsync(filePath, "hello");
 
-        var scanner = new SourceScanner(root, new LocalScanStateIndex(root));
+        var scanner = new SourceScanner(root, new LocalScanStateIndex(root, CreateTempDirectory()));
         using var handle = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.None);
 
         var result = await scanner.ScanAsync(root, CancellationToken.None);
@@ -162,7 +162,7 @@ public sealed class SourceScannerTests : IDisposable
         var filePath = Path.Combine(root, "tracked.txt");
         await File.WriteAllTextAsync(filePath, "version-1");
 
-        var state = new LocalScanStateIndex(root);
+        var state = new LocalScanStateIndex(root, CreateTempDirectory());
         var scanner = new SourceScanner(root, state, verificationInterval: TimeSpan.FromHours(1));
         await scanner.UpdateStateAsync(new[]
         {
@@ -189,7 +189,7 @@ public sealed class SourceScannerTests : IDisposable
         var filePath = Path.Combine(root, "tracked.txt");
         await File.WriteAllTextAsync(filePath, "version-1");
 
-        var state = new LocalScanStateIndex(root);
+        var state = new LocalScanStateIndex(root, CreateTempDirectory());
         var scanner = new SourceScanner(root, state, verificationInterval: TimeSpan.FromHours(24));
         await scanner.UpdateStateAsync(new[]
         {
@@ -216,8 +216,8 @@ public sealed class SourceScannerTests : IDisposable
         var filePath = Path.Combine(root, "persisted.txt");
         await File.WriteAllTextAsync(filePath, "persisted-data");
 
-        var indexPath = Path.Combine(root, "state.json");
-        var firstIndex = new LocalScanStateIndex(root);
+        var stateDirectory = CreateTempDirectory();
+        var firstIndex = new LocalScanStateIndex(root, stateDirectory);
         var firstScanner = new SourceScanner(root, firstIndex);
         await firstScanner.UpdateStateAsync(new[]
         {
@@ -230,7 +230,7 @@ public sealed class SourceScannerTests : IDisposable
             }
         });
 
-        var secondIndex = new LocalScanStateIndex(root);
+        var secondIndex = new LocalScanStateIndex(root, stateDirectory);
         var snapshot = await secondIndex.LoadAsync(CancellationToken.None);
 
         Assert.NotNull(snapshot);
@@ -245,7 +245,7 @@ public sealed class SourceScannerTests : IDisposable
         var filePath = Path.Combine(root, "new.txt");
         await File.WriteAllTextAsync(filePath, "alpha");
 
-        var index = new LocalScanStateIndex(root);
+        var index = new LocalScanStateIndex(root, CreateTempDirectory());
         var scanner = new SourceScanner(root, index);
         var result = await scanner.ScanAsync(root, CancellationToken.None);
 
@@ -260,7 +260,7 @@ public sealed class SourceScannerTests : IDisposable
         var filePath = Path.Combine(root, "archive-me.txt");
         await File.WriteAllTextAsync(filePath, "payload");
 
-        var index = new LocalScanStateIndex(root);
+        var index = new LocalScanStateIndex(root, CreateTempDirectory());
         var scanner = new SourceScanner(root, index);
 
         var result = await scanner.ScanAsync(root, CancellationToken.None);

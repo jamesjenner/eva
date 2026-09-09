@@ -25,7 +25,7 @@ public sealed class LocalScanStateIndex : IArchiveIndex
     private readonly string _sourceDirectory;
     private readonly string _stateFilePath;
 
-    public LocalScanStateIndex(string sourceDirectory)
+    public LocalScanStateIndex(string sourceDirectory, string? stateDirectory = null)
     {
         if (string.IsNullOrWhiteSpace(sourceDirectory))
         {
@@ -34,7 +34,7 @@ public sealed class LocalScanStateIndex : IArchiveIndex
 
         _sourceDirectory = Path.GetFullPath(sourceDirectory);
         var appDataRoot = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        var stateRoot = Path.Combine(appDataRoot, "EVA", "state");
+        var stateRoot = stateDirectory ?? Path.Combine(appDataRoot, "EVA", "state");
         Directory.CreateDirectory(stateRoot);
 
         var sourceHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(_sourceDirectory))).ToLowerInvariant();
