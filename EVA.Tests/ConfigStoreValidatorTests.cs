@@ -1,6 +1,7 @@
 using System.Text;
 using EVA.App;
 using EVA.Core;
+using EVA.Core.Interfaces;
 using EVA.Core.Models;
 using EVA.Infrastructure;
 using Xunit;
@@ -26,7 +27,7 @@ public sealed class ConfigStoreTests : IDisposable
     public async Task DefaultConfigurationIsReturnedWhenNoConfigFileExists()
     {
         var root = CreateTempRoot();
-        var store = new ConfigStore(root);
+        var store = new ConfigStore(root, new FakePasswordStore());
 
         var result = await store.LoadAsync();
 
@@ -51,7 +52,7 @@ public sealed class ConfigStoreTests : IDisposable
             SnapshotFrequency = SnapshotFrequency.Daily,
             RetentionPolicy = new RetentionPolicy { IncrementalRetentionDays = 14, WeeklySnapshotRetentionDays = 180, MonthlySnapshotRetentionDays = null },
             StartWithWindows = true,
-            PasswordReference = PasswordStore.PasswordReference
+            PasswordReference = new FakePasswordStore().PasswordReference
         };
 
         Directory.CreateDirectory(config.SourceDirectory);
@@ -78,7 +79,7 @@ public sealed class ConfigStoreTests : IDisposable
         Directory.CreateDirectory(root);
         await File.WriteAllTextAsync(configPath, "{ invalid json");
 
-        var store = new ConfigStore(root);
+        var store = new ConfigStore(root, new FakePasswordStore());
         var loaded = await store.LoadAsync();
 
         Assert.NotNull(loaded);
@@ -98,7 +99,7 @@ public sealed class ConfigStoreTests : IDisposable
             SecondaryDestinationEnabled = false,
             BackupIntervalMinutes = 15,
             SnapshotFrequency = SnapshotFrequency.Weekly,
-            PasswordReference = PasswordStore.PasswordReference
+            PasswordReference = new FakePasswordStore().PasswordReference
         };
 
         Directory.CreateDirectory(config.SourceDirectory);
@@ -140,7 +141,7 @@ public sealed class ConfigValidatorTests : IDisposable
     {
         var config = CreateValidConfiguration();
 
-        var validator = new ConfigValidator();
+        var validator = new ConfigValidator(new FakePasswordStore());
 
         var ex = Record.Exception(() => validator.Validate(config));
 
@@ -153,7 +154,7 @@ public sealed class ConfigValidatorTests : IDisposable
         var config = CreateValidConfiguration();
         config.SourceDirectory = Path.Combine(Path.GetTempPath(), "eva-missing-source" + Guid.NewGuid().ToString("N"));
 
-        var validator = new ConfigValidator();
+        var validator = new ConfigValidator(new FakePasswordStore());
 
         var ex = Assert.Throws<ArgumentException>(() => validator.Validate(config));
         Assert.Contains("source", ex.Message, StringComparison.OrdinalIgnoreCase);
@@ -169,7 +170,7 @@ public sealed class ConfigValidatorTests : IDisposable
         File.SetAttributes(locked, FileAttributes.ReadOnly);
         config.PrimaryDestination = locked;
 
-        var validator = new ConfigValidator();
+        var validator = new ConfigValidator(new FakePasswordStore());
         var ex = Assert.ThrowsAny<ArgumentException>(() => validator.Validate(config));
         Assert.NotNull(ex);
 
@@ -188,7 +189,7 @@ public sealed class ConfigValidatorTests : IDisposable
         config.SourceDirectory = source;
         config.PrimaryDestination = primary;
 
-        var validator = new ConfigValidator();
+        var validator = new ConfigValidator(new FakePasswordStore());
 
         var ex = Assert.Throws<ArgumentException>(() => validator.Validate(config));
         Assert.Contains("recursive", ex.Message, StringComparison.OrdinalIgnoreCase);
@@ -206,7 +207,7 @@ public sealed class ConfigValidatorTests : IDisposable
         config.SourceDirectory = source;
         config.PrimaryDestination = primary;
 
-        var validator = new ConfigValidator();
+        var validator = new ConfigValidator(new FakePasswordStore());
 
         var ex = Assert.Throws<ArgumentException>(() => validator.Validate(config));
         Assert.Contains("recursive", ex.Message, StringComparison.OrdinalIgnoreCase);
@@ -227,7 +228,7 @@ public sealed class ConfigValidatorTests : IDisposable
         config.SecondaryDestination = secondary;
         config.SecondaryDestinationEnabled = true;
 
-        var validator = new ConfigValidator();
+        var validator = new ConfigValidator(new FakePasswordStore());
 
         var ex = Assert.Throws<ArgumentException>(() => validator.Validate(config));
         Assert.Contains("secondary", ex.Message, StringComparison.OrdinalIgnoreCase);
@@ -239,7 +240,7 @@ public sealed class ConfigValidatorTests : IDisposable
         var config = CreateValidConfiguration();
         config.BackupIntervalMinutes = 0;
 
-        var validator = new ConfigValidator();
+        var validator = new ConfigValidator(new FakePasswordStore());
 
         var ex = Assert.Throws<ArgumentException>(() => validator.Validate(config));
         Assert.Contains("backup interval", ex.Message, StringComparison.OrdinalIgnoreCase);
@@ -251,7 +252,7 @@ public sealed class ConfigValidatorTests : IDisposable
         var config = CreateValidConfiguration();
         config.RetentionPolicy.IncrementalRetentionDays = 0;
 
-        var validator = new ConfigValidator();
+        var validator = new ConfigValidator(new FakePasswordStore());
 
         var ex = Assert.Throws<ArgumentException>(() => validator.Validate(config));
         Assert.Contains("incremental", ex.Message, StringComparison.OrdinalIgnoreCase);
@@ -264,7 +265,7 @@ public sealed class ConfigValidatorTests : IDisposable
         config.SecondaryDestinationEnabled = false;
         config.SecondaryDestination = Path.Combine(Path.GetTempPath(), "invalid-secondary" + Guid.NewGuid().ToString("N"));
 
-        var validator = new ConfigValidator();
+        var validator = new ConfigValidator(new FakePasswordStore());
 
         var ex = Record.Exception(() => validator.Validate(config));
         Assert.Null(ex);
@@ -292,7 +293,7 @@ public sealed class ConfigValidatorTests : IDisposable
                 WeeklySnapshotRetentionDays = 365,
                 MonthlySnapshotRetentionDays = null
             },
-            PasswordReference = PasswordStore.PasswordReference,
+            PasswordReference = new FakePasswordStore().PasswordReference,
             StartWithWindows = false
         };
     }
@@ -304,4 +305,19 @@ public sealed class ConfigValidatorTests : IDisposable
         _tempRoots.Add(path);
         return path;
     }
+}
+
+internal sealed class FakePasswordStore : IPasswordStore
+{
+    private string? _password = "test-password";
+
+    public string PasswordReference => "EVA-Test-EncryptionPassword";
+
+    public bool HasStoredPassword() => !string.IsNullOrEmpty(_password);
+
+    public string? GetPassword() => _password;
+
+    public void SavePassword(string password) => _password = password;
+
+    public void RemovePassword() => _password = null;
 }

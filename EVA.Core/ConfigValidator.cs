@@ -5,6 +5,13 @@ namespace EVA.Core;
 
 public sealed class ConfigValidator : IConfigValidator
 {
+    private readonly IPasswordStore _passwordStore;
+
+    public ConfigValidator(IPasswordStore passwordStore)
+    {
+        _passwordStore = passwordStore ?? throw new ArgumentNullException(nameof(passwordStore));
+    }
+
     public void Validate(BackupConfiguration configuration)
     {
         if (configuration is null)
@@ -55,7 +62,7 @@ public sealed class ConfigValidator : IConfigValidator
             }
         }
 
-        if (string.IsNullOrWhiteSpace(configuration.PasswordReference))
+        if (!_passwordStore.HasStoredPassword())
         {
             throw new ArgumentException("Encryption configuration is required.", nameof(configuration));
         }

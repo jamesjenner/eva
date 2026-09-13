@@ -13,13 +13,15 @@ namespace EVA.App;
 
 public partial class OptionsWindow : SukiWindow
 {
-    private readonly ConfigStore _configStore = new();
+    private readonly PasswordStore _passwordStore = new();
+    private readonly ConfigStore _configStore;
     private BackupConfiguration _configuration = BackupConfiguration.Default();
     private static ISukiDialogManager DialogManager = new SukiDialogManager();
 
     public OptionsWindow()
     {
         InitializeComponent();
+        _configStore = new ConfigStore(passwordStore: _passwordStore);
         Loaded += OnLoaded;
         DialogHost.Manager = DialogManager;
     }
@@ -112,9 +114,9 @@ public partial class OptionsWindow : SukiWindow
         await dialog.ShowDialog(this);
 
         // dialog has closed — check if password was set
-        if (PasswordStore.HasStoredPassword())
+        if (_passwordStore.HasStoredPassword())
         {
-            _configuration.PasswordReference = PasswordStore.PasswordReference;
+            _configuration.PasswordReference = _passwordStore.PasswordReference;
         }
     }
 

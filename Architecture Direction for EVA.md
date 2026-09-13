@@ -42,6 +42,7 @@ Recommended solution structure for EVA Version 1:
   - backup/restore/retention domain logic
   - service interfaces and abstraction boundaries
   - validation rules and policy models
+  - password storage abstraction (IPasswordStore)
 
 - EVA.Infrastructure
   - archive serialization and parsing
@@ -51,6 +52,7 @@ Recommended solution structure for EVA Version 1:
   - configuration persistence
   - archive discovery and indexing
   - logging
+  - password storage and retrieval (PasswordStore)
   - concrete implementations of Core abstractions
 
 - EVA.Tests
@@ -105,7 +107,8 @@ Dependency direction:
 Purpose:
 - define the domain rules and core logic of archive creation, validation, restore, retention, and backup decisions
 - define archive metadata contracts, manifest models, configuration models, and backup policy models
-- define interfaces such as archive readers, archive writers, crypto services, index services, and retention evaluators
+- define interfaces such as archive readers, archive writers, crypto services, index services, retention evaluators, and password storage
+- define IPasswordStore as the abstraction boundary for password storage so that ConfigValidator and other Core components can depend on the abstraction without knowing about Windows Credential Manager or any concrete storage mechanism
 
 Why it exists:
 - This is the conceptual heart of the system.
@@ -122,7 +125,7 @@ Dependency direction:
 
 Purpose:
 - implement the actual technical behavior behind the core contracts
-- contain the concrete implementations for archive serialization, cryptography, compression, filesystem operations, configuration persistence, indexing, and logging
+- contain the concrete implementations for archive serialization, cryptography, compression, filesystem operations, configuration persistence, indexing, logging, and password storage
 
 Why it exists:
 - This project holds the concrete mechanics of the specification.
@@ -133,54 +136,6 @@ Dependency direction:
 - is consumed by App
 
 This project should be internally organized by namespace and folder to preserve separation, for example:
-
-- EVA.Infrastructure.Archives
-- EVA.Infrastructure.Cryptography
-- EVA.Infrastructure.Compression
-- EVA.Infrastructure.Storage
-- EVA.Infrastructure.Configuration
-- EVA.Infrastructure.Indexing
-- EVA.Infrastructure.Logging
-- EVA.Infrastructure.Security
-
-These are not separate projects; they are logical boundaries inside one infrastructure assembly.
-
----
-
-### EVA.Tests
-
-Purpose:
-- test the actual behavior of archive creation, crypto, chain validation, restore accuracy, retention, and backup failure handling
-
-Why it exists:
-- The specification is safety-critical, so testability is important.
-- This is the one project where tests are naturally separated from production code.
-
-Dependency direction:
-- depends on the production projects being tested
-
----
-
-## 5) Responsibilities merged into the same project and why they remain logically separated
-
-This is the main change from the earlier fragmented architecture.
-
-The following responsibilities are intentionally merged into EVA.Infrastructure:
-
-- cryptography
-- compression
-- archive serialization
-- filesystem/storage operations
-- configuration persistence
-- archive discovery/indexing
-- logging
-
-These are all implementation details of the application, not independently distributable subsystems.
-
-They remain logically separated in the following way:
-
-### By folder and namespace
-Example grouping:
 
 - EVA.Infrastructure.Archives
   - archive format, public header, manifest handling, writer/reader, validation
@@ -205,9 +160,56 @@ Example grouping:
 - EVA.Infrastructure.Logging
   - structured event logging and diagnostics
 
-These are separate namespaces and internal implementation areas, but they live in a single assembly because the application is not intended to ship them independently.
+- EVA.Infrastructure.Security
+  - password storage and retrieval (PasswordStore)
+  - Windows Credential Manager integration via P/Invoke
+  - DPAPI and AES-GCM legacy file fallback
+  - implements IPasswordStore from EVA.Core
+
+These are not separate projects; they are logical boundaries inside one infrastructure assembly.
+
+---
+
+### EVA.Tests
+
+Purpose:
+- test the actual behavior of archive creation, crypto, chain validation, restore accuracy, retention, and backup failure handling
+
+Why it exists:
+- The specification is safety-critical, so testability is important.
+- This is the one project where tests are naturally separated from production code.
+
+Dependency direction:
+- depends on the production projects being tested
+- uses FakePasswordStore (an in-memory IPasswordStore implementation) for tests that require password storage without real Credential Manager access
+
+---
+
+## 5) Responsibilities merged into the same project and why they remain logically separated
+
+This is the main change from the earlier fragmented architecture.
+
+The following responsibilities are intentionally merged into EVA.Infrastructure:
+
+- cryptography
+- compression
+- archive serialization
+- filesystem/storage operations
+- configuration persistence
+- archive discovery/indexing
+- logging
+- password storage and retrieval
+
+These are all implementation details of the application, not independently distributable subsystems.
+
+They remain logically separated in the following way:
+
+### By folder and namespace
+
+See the namespace listing in Section 4 above. Each area of responsibility has its own namespace and internal implementation boundary.
 
 ### By interfaces in Core
+
 The important architectural boundary is not project count, but service boundaries.
 
 For example:
@@ -222,10 +224,12 @@ For example:
 - IArchiveIndex
 - IConfigStore
 - IEventLogger
+- IPasswordStore
 
 This allows the Core layer to depend on abstractions instead of concrete implementations while keeping all production code in one deployable application.
 
 ### By ownership and dependency rules
+
 Even though these concerns are in the same project, they still obey the same dependency discipline:
 
 - archive packaging logic should not reach directly into the UI
@@ -233,6 +237,7 @@ Even though these concerns are in the same project, they still obey the same dep
 - logging should never accept or emit secrets
 - storage should not be responsible for UI decisions
 - configuration should not contain backup logic
+- password storage must never store plaintext passwords or encryption keys
 
 This keeps the system logically clean without turning every concern into a separate project.
 
@@ -250,7 +255,7 @@ This gives EVA a straightforward flow:
 
 1. The app triggers a backup or restore operation.
 2. The orchestration code in Core or App calls domain logic.
-3. The infrastructure layer performs the concrete archive, crypto, compression, and filesystem work.
+3. The infrastructure layer performs the concrete archive, crypto, compression, filesystem, and password storage work.
 4. The app reports status and logs operational results.
 
 This is sufficient for Version 1 because the app is a single product with one developer and one release process.
@@ -272,8 +277,9 @@ At the same time, it does not collapse the important separation required by the 
 - archive format rules are distinct from crypto logic
 - cryptography is distinct from storage and UI concerns
 - authentication and validation must be explicit and testable
+- password storage is an infrastructure concern, not a UI concern — PasswordStore lives in EVA.Infrastructure and is accessed through the IPasswordStore abstraction defined in EVA.Core
 
-The app stays simple to understand while still respecting the system’s critical integrity boundaries.
+The app stays simple to understand while still respecting the system's critical integrity boundaries.
 
 ---
 
@@ -286,6 +292,8 @@ Even with just a few projects, the architecture must preserve important security
 - the Argon2id KDF must be explicit and testable
 - archive validation should not be hidden inside UI logic
 - the backup orchestrator should not directly mix runtime UI state with archive correctness logic
+- password storage must be behind the IPasswordStore abstraction so that ConfigValidator and other Core components never depend on concrete Windows credential storage mechanisms
+- tests must use FakePasswordStore rather than real Credential Manager access to remain isolated and repeatable
 
 The code can remain in a single infrastructure assembly, but it should still be organized and tested as if it were multiple technical subsystems.
 
@@ -296,42 +304,34 @@ The code can remain in a single infrastructure assembly, but it should still be 
 The following are still design decisions regardless of project count:
 
 1. UI framework choice
-   - WPF vs WinForms
 
-   Decision: WPF
+   Decision: Avalonia with SukiUI theming. WPF was the original choice but Avalonia was selected for its cross-platform capability and modern appearance. SukiUI 7.x provides the theme, controls, and dialog system.
 
 2. Archive payload structure details
-   - exact manifest data model and file entry encoding
 
    Decision: as specified in the format documentation.
 
 3. File stability policy
-   - retry count, wait time, and stability definition
 
-   Decision: 2-second wait, 3 retries, stability confirmed if size and last-write-time are unchanged across two consecutive checks. 
+   Decision: 2-second wait, 3 retries. Stability is confirmed by comparing SHA-256 hashes across two consecutive checks rather than relying on filesystem timestamps, which have coarse resolution on Windows NTFS. Both TryReadFile and ComputeSha256 use FileShare.ReadWrite so files held open by other processes are correctly detected as unstable rather than unreadable.
 
 4. Snapshot scheduling semantics
-   - weekly/monthly boundary rules and deduplication policy
 
    Decision: Weekly snapshots: calendar week, triggered on the last scheduled backup check on Sunday before midnight (Sunday 23:59). Monthly snapshots: calendar month, triggered on the first scheduled check on or after the 1st. If the trigger window is missed within the same period, fire on the next available check. If the entire period is missed, fire immediately on resume. A weekly snapshot falling on the 1st satisfies both the weekly and monthly categories — no duplicate snapshot is created.
 
 5. Secondary destination retry model
-   - how pending copies are tracked and retried
 
    Decision: A small local JSON state file recording per-archive copy status.
 
 6. Local secret storage strategy
-   - DPAPI/Credential Manager optional convenience only
 
-   Decision:Use DPAPI/Credential Manager for the local installation convenience, document explicitly that it is never baked into the archive format.
+  Decision: Use Windows Credential Manager as the sole password store via P/Invoke to CredWrite/CredRead. The storage mechanism is not baked into the archive format — archives remain decryptable on any machine using only the user password.
 
 7. Restore exactness policy
-   - which metadata is preserved and which is intentionally ignored
 
-   Decision:relative path, file contents, file size, and last-modified timestamp (UTC). Explicitly exclude: Windows ACLs, file attributes (hidden, read-only), creation timestamps, and NTFS alternate data streams. 
+   Decision: relative path, file contents, file size, and last-modified timestamp (UTC). Explicitly exclude: Windows ACLs, file attributes (hidden, read-only), creation timestamps, and NTFS alternate data streams.
 
 8. Incomplete chain behavior in UI
-   - whether some degraded archive inspection is allowed ahead of full restore
 
    Decision: no degraded mode in V1. If the chain is incomplete, report it clearly and block restore. Keep the validation logic simple and unambiguous for now.
 
@@ -368,8 +368,8 @@ The earlier architecture was directionally correct but too fragmented for a sing
 The revised architecture keeps the important technical boundaries, but collapses them into a small, practical application structure:
 
 - App for UI and orchestration
-- Core for domain logic and contracts
-- Infrastructure for concrete technical implementation
-- Tests for safety and correctness
+- Core for domain logic, contracts, and abstractions including IPasswordStore
+- Infrastructure for concrete technical implementation including PasswordStore, archive handling, cryptography, and all storage concerns
+- Tests for safety and correctness, using FakePasswordStore for isolated password-related testing
 
 This is the best fit for EVA Version 1: maintainable, secure, testable, and simple enough for one developer to understand and extend.

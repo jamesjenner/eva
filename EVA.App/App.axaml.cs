@@ -6,6 +6,7 @@ using SukiUI;
 using SukiUI.Enums;
 using Avalonia.Styling;
 using ConfigStore = EVA.Infrastructure.ConfigStore;
+using EVA.Infrastructure;
 
 namespace EVA.App;
 
@@ -43,13 +44,10 @@ public partial class App : Application
     private static bool IsFirstRun()
     {
         var configStore = new ConfigStore();
+        var passwordStore = new PasswordStore();
         var configExists = configStore.ExistsAsync().GetAwaiter().GetResult();
-        // JGJ Debugging
-        Console.Error.WriteLine("=== EVA STARTUP DIAGNOSTICS ===");
-        Console.Error.WriteLine($"Config exists: {configExists}");
-        Console.Error.WriteLine($"Has password: {PasswordStore.HasStoredPassword()}");
 
-        return !configExists || !PasswordStore.HasStoredPassword();
+        return !configExists || !passwordStore.HasStoredPassword();
     }
 
     private void CreateTrayIcon()

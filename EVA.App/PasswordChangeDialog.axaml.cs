@@ -3,17 +3,19 @@ using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using SukiUI.Controls;
+using EVA.Infrastructure;
 
 namespace EVA.App;
 
 public partial class PasswordChangeDialog : SukiWindow
 {
+    private readonly PasswordStore _passwordStore = new();
     private readonly bool _isFirstRun;
 
     public PasswordChangeDialog()
     {
         InitializeComponent();
-        _isFirstRun = !PasswordStore.HasStoredPassword();
+        _isFirstRun = !_passwordStore.HasStoredPassword();
         CurrentPasswordLabel.IsVisible = !_isFirstRun;
         CurrentPasswordText.IsVisible = !_isFirstRun;
         CurrentPasswordToggle.IsVisible = !_isFirstRun;
@@ -77,8 +79,16 @@ public partial class PasswordChangeDialog : SukiWindow
     private void Save_Click(object? sender, RoutedEventArgs e)
     {
         if (!Validate()) return;
-        PasswordStore.SavePassword(NewPasswordText.Text!.Trim());
-        Close();
+        try
+        {
+            _passwordStore.SavePassword(NewPasswordText.Text!.Trim());
+            Close();
+        }
+        catch (InvalidOperationException ex)
+        {
+            ErrorSummaryText.Text = ex.Message;
+            ErrorSummaryBorder.Opacity = 1;
+        }
     }
 
     private bool Validate()
@@ -94,7 +104,7 @@ public partial class PasswordChangeDialog : SukiWindow
 
         if (!_isFirstRun)
         {
-            var storedPassword = PasswordStore.GetPassword(PasswordStore.PasswordReference);
+            var storedPassword = _passwordStore.GetPassword();
             if (storedPassword is null || storedPassword != CurrentPasswordText.Text?.Trim())
             {
                 CurrentPasswordError.Text = "Current password is incorrect";

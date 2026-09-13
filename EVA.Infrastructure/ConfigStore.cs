@@ -11,7 +11,7 @@ public sealed class ConfigStore : IConfigStore
     private readonly string _configPath;
     private readonly ConfigValidator _validator;
 
-    public ConfigStore(string? appDataDirectory = null)
+    public ConfigStore(string? appDataDirectory = null, IPasswordStore? passwordStore = null)
     {
         _appDataDirectory = string.IsNullOrWhiteSpace(appDataDirectory)
             ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "EVA")
@@ -19,7 +19,7 @@ public sealed class ConfigStore : IConfigStore
 
         Directory.CreateDirectory(_appDataDirectory);
         _configPath = Path.Combine(_appDataDirectory, "eva-config.json");
-        _validator = new ConfigValidator();
+        _validator = new ConfigValidator(passwordStore ?? new PasswordStore());
     }
 
     public string ConfigPath => _configPath;
