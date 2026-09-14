@@ -60,7 +60,19 @@ public partial class OptionsWindow : SukiWindow
         try
         {
             var config = BuildConfigurationFromForm();
-            await _configStore.SaveAsync(config);
+            if (!App.TryValidateConfig(config, out var validationError))
+            {
+                OptionsWindow.DialogManager.CreateDialog()
+                    .WithTitle("Validation error")
+                    .WithContent(validationError ?? "The configuration is invalid.")
+                    .OfType(NotificationType.Error)
+                    .WithActionButton("OK", _ => { }, true)
+                    .TryShow();
+                return;
+            }
+
+            await App.ConfigStore.SaveAsync(config);
+            await App.RefreshOrchestratorAsync(config);
             _configuration = config;
             Close();
         }
