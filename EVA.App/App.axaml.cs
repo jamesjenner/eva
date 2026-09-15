@@ -229,6 +229,7 @@ public partial class App : Application
             return;
         }
 
+        System.Diagnostics.Debug.WriteLine("App.axaml.cs: calling Orchestrator.RunOnceAsync()");
         try
         {
             await Orchestrator.RunOnceAsync(manualSnapshot: true, cancellationToken: CancellationToken.None);
@@ -241,7 +242,8 @@ public partial class App : Application
 
     private static void ShowListSnapshots()
     {
-        // TODO: implement ListSnapshotWindow
+        var window = new ListSnapshotWindow();
+        window.Show();
     }
 
     private static void ShowRestoreSnapshot()

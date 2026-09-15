@@ -146,12 +146,15 @@ public sealed class BackupOrchestrator
         }
 
         var manifest = CreateManifest(checkTime, archiveType, _currentChainId, manualSnapshot);
-        var fileEntries = scanResult.ConfirmedChanges.ToList();
+        List<FileEntry> fileEntries = archiveType == ArchiveType.Snapshot
+            ? scanResult.StableFiles.Concat(scanResult.ConfirmedChanges).ToList()
+            : scanResult.ConfirmedChanges.ToList();
+        var directoryEntries = scanResult.EmptyDirectories.ToList();
         var archivePath = CreateArchivePath(checkTime, archiveType);
 
         try
         {
-            await _writer.WriteArchiveAsync(manifest, fileEntries, archivePath, _password, cancellationToken).ConfigureAwait(false);
+            await _writer.WriteArchiveAsync(manifest, fileEntries!, directoryEntries, archivePath, _password, cancellationToken).ConfigureAwait(false);
             if (!await _reader.ValidateArchiveAsync(archivePath, _password, cancellationToken).ConfigureAwait(false))
             {
                 throw new InvalidOperationException("Archive verification failed after write.");
@@ -173,7 +176,7 @@ public sealed class BackupOrchestrator
                 }
             }
 
-            await _stateIndex.UpdateStateAsync(fileEntries, checkTime, cancellationToken).ConfigureAwait(false);
+            await _stateIndex.UpdateStateAsync(fileEntries!, checkTime, cancellationToken).ConfigureAwait(false);
             _retentionEvaluator?.ApplyRetentionAsync(_primaryArchiveDirectory, cancellationToken).GetAwaiter().GetResult();
             _logger.LogInformation($"Archive created successfully: {archivePath}");
 

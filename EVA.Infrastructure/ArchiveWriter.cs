@@ -26,6 +26,23 @@ public sealed class ArchiveWriter : IArchiveWriter
         string password,
         CancellationToken cancellationToken = default)
     {
+        await WriteArchiveAsync(
+            manifest,
+            fileEntries,
+            new List<DirectoryEntry>(),
+            destinationPath,
+            password,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task WriteArchiveAsync(
+        ArchiveManifest manifest,
+        IReadOnlyCollection<FileEntry> fileEntries,
+        List<DirectoryEntry> directoryEntries,
+        string destinationPath,
+        string password,
+        CancellationToken cancellationToken = default)
+    {
         if (string.IsNullOrWhiteSpace(destinationPath))
         {
             throw new ArgumentException("Destination path is required.", nameof(destinationPath));
@@ -56,6 +73,10 @@ public sealed class ArchiveWriter : IArchiveWriter
             var sourceId = manifest.SourceId;
             var createdUtc = NormalizeUtcTimestamp(manifest.CreatedUtc);
             manifest.CreatedUtc = createdUtc;
+            manifest.Files.Clear();
+            manifest.Files.AddRange(fileEntries);
+            manifest.Directories.Clear();
+            manifest.Directories.AddRange(directoryEntries);
 
             var payload = BuildPayload(manifest, fileEntries);
             var salt = RandomNumberGenerator.GetBytes(SaltLength);

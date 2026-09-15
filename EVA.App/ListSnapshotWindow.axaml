@@ -1,0 +1,134 @@
+<suki:SukiWindow
+        xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:suki="clr-namespace:SukiUI.Controls;assembly=SukiUI"
+        x:Class="EVA.App.ListSnapshotWindow"
+        x:CompileBindings="False"
+        Title="Snapshot content"
+        Width="1100"
+        Height="760"
+        MinWidth="760"
+        MinHeight="520"
+        WindowStartupLocation="CenterScreen">
+    <Grid Margin="12" RowDefinitions="Auto,Auto,*,Auto" RowSpacing="10">
+        <ProgressBar x:Name="LoadingIndicator"
+                     Grid.Row="0"
+                     Height="4"
+                     IsVisible="False"
+                     IsIndeterminate="True" />
+
+        <TextBlock x:Name="ScanStatusText"
+                   Grid.Row="1"
+                   TextWrapping="Wrap"
+                   Opacity="0.8" />
+
+        <Grid Grid.Row="2" RowDefinitions="Auto,*" ColumnDefinitions="*,4,*" ColumnSpacing="8">
+            <StackPanel Grid.Row="0" Grid.Column="0" Spacing="2">
+                <TextBlock FontWeight="SemiBold" Text="Primary destination" />
+                <TextBlock x:Name="PrimaryPathText" TextWrapping="Wrap" Opacity="0.75" />
+            </StackPanel>
+            <StackPanel Grid.Row="0" Grid.Column="2" Spacing="2">
+                <TextBlock FontWeight="SemiBold" Text="Secondary destination" />
+                <TextBlock x:Name="SecondaryPathText" TextWrapping="Wrap" Opacity="0.75" />
+            </StackPanel>
+
+            <ScrollViewer x:Name="PrimaryScrollViewer"
+                          Grid.Row="1"
+                          Grid.Column="0"
+                          VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled"
+                          ScrollChanged="PrimaryScrollViewer_ScrollChanged">
+                <StackPanel Spacing="6">
+                    <TextBlock x:Name="PrimaryMessageText"
+                               TextWrapping="Wrap"
+                               Opacity="0.75" />
+                    <ItemsControl x:Name="PrimaryArchivesList">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Padding="8" BorderBrush="{DynamicResource ThemeBorderLowBrush}" BorderThickness="1" CornerRadius="4">
+                                    <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="8" RowSpacing="2">
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="{Binding FileName}" TextTrimming="CharacterEllipsis" FontWeight="SemiBold" />
+                                        <Button Grid.Row="0" Grid.Column="1" Grid.RowSpan="3" Width="32" Height="32" Padding="0" Tag="{Binding}" Click="OpenManifest_Click" ToolTip.Tip="View manifest">
+                                            <TextBlock Text=">" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                        </Button>
+                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="{Binding TypeLabel}" Opacity="0.8" />
+                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="{Binding DetailsLabel}" Opacity="0.8" TextWrapping="Wrap" />
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </ScrollViewer>
+
+            <GridSplitter Grid.Row="1" Grid.Column="1" Width="4" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" ResizeDirection="Columns" />
+
+            <ScrollViewer x:Name="SecondaryScrollViewer"
+                          Grid.Row="1"
+                          Grid.Column="2"
+                          VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled"
+                          ScrollChanged="SecondaryScrollViewer_ScrollChanged">
+                <StackPanel Spacing="6">
+                    <TextBlock x:Name="SecondaryMessageText"
+                               TextWrapping="Wrap"
+                               Opacity="0.75" />
+                    <ItemsControl x:Name="SecondaryArchivesList">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Padding="8" BorderBrush="{DynamicResource ThemeBorderLowBrush}" BorderThickness="1" CornerRadius="4">
+                                    <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="8" RowSpacing="2">
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="{Binding FileName}" TextTrimming="CharacterEllipsis" FontWeight="SemiBold" />
+                                        <Button Grid.Row="0" Grid.Column="1" Grid.RowSpan="3" Width="32" Height="32" Padding="0" Tag="{Binding}" Click="OpenManifest_Click" ToolTip.Tip="View manifest">
+                                            <TextBlock Text=">" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                        </Button>
+                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="{Binding TypeLabel}" Opacity="0.8" />
+                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="{Binding DetailsLabel}" Opacity="0.8" TextWrapping="Wrap" />
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </ScrollViewer>
+        </Grid>
+
+        <Border x:Name="ManifestPanel"
+                Grid.Row="3"
+                Padding="10"
+                BorderBrush="{DynamicResource ThemeBorderLowBrush}"
+                BorderThickness="1"
+                CornerRadius="4"
+                IsVisible="False">
+            <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="6">
+                <Grid ColumnDefinitions="*,Auto">
+                    <TextBlock Text="Manifest" FontWeight="SemiBold" />
+                    <Button Grid.Column="1" Content="Close" Padding="10,4" Click="CloseManifest_Click" />
+                </Grid>
+                <TextBlock x:Name="ManifestErrorText" Grid.Row="1" TextWrapping="Wrap" Foreground="{DynamicResource EVAErrorBrush}" IsVisible="False" />
+                <TextBlock x:Name="ManifestMetadataText" Grid.Row="2" TextWrapping="Wrap" />
+                <TextBlock x:Name="ManifestLoadingText" Grid.Row="3" Text="Loading manifest..." IsVisible="False" />
+                <ScrollViewer Grid.Row="4" MaxHeight="220" VerticalScrollBarVisibility="Auto">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="Files" FontWeight="SemiBold" />
+                        <ItemsControl x:Name="ManifestFilesList">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding DetailsLabel}" TextWrapping="Wrap" />
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock Text="Directories" FontWeight="SemiBold" />
+                        <ItemsControl x:Name="ManifestDirectoriesList">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding DetailsLabel}" TextWrapping="Wrap" />
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </ScrollViewer>
+            </Grid>
+        </Border>
+    </Grid>
+</suki:SukiWindow>

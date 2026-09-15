@@ -68,6 +68,7 @@ public sealed class SourceScanner : ISourceScanner
             cancellationToken.ThrowIfCancellationRequested();
             if (IsExcludedPath(filePath, root))
             {
+                System.Diagnostics.Debug.WriteLine("SourceScanner: \tis excluded");
                 continue;
             }
 
