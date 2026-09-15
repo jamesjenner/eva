@@ -1,0 +1,52 @@
+<suki:SukiWindow
+        xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:suki="clr-namespace:SukiUI.Controls;assembly=SukiUI"
+        x:Class="EVA.App.BackupStatusWindow"
+        x:CompileBindings="False"
+        Title="Backup Status"
+        Width="480"
+        Height="380"
+        MinWidth="480"
+        MaxWidth="480"
+        MinHeight="380"
+        MaxHeight="380"
+        WindowStartupLocation="CenterScreen"
+        ShowActivated="False"
+        Topmost="False"
+        CanResize="False">
+    <Grid Margin="16" RowDefinitions="Auto,Auto,Auto,Auto,*,Auto" RowSpacing="10">
+        <TextBlock Grid.Row="0" Text="Backup Status" FontSize="20" FontWeight="SemiBold" />
+        <TextBlock x:Name="StatusSummaryText" Grid.Row="1" TextWrapping="Wrap" />
+
+        <Border Grid.Row="2" Classes="card" Padding="10">
+            <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="*,Auto" RowSpacing="6" ColumnSpacing="12">
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="Last successful backup" />
+                <TextBlock x:Name="LastSuccessfulBackupText" Grid.Row="0" Grid.Column="1" HorizontalAlignment="Right" />
+                <TextBlock Grid.Row="1" Grid.Column="0" Text="Next scheduled run" />
+                <TextBlock x:Name="NextScheduledRunText" Grid.Row="1" Grid.Column="1" HorizontalAlignment="Right" />
+            </Grid>
+        </Border>
+
+        <TextBlock Grid.Row="3" Text="Skipped files" FontWeight="SemiBold" />
+        <Border Grid.Row="4" Classes="card" Padding="8">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <ItemsControl x:Name="UnstableFilesList">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding}"
+                                       Foreground="{StaticResource EVAWarningBrush}"
+                                       TextWrapping="Wrap"
+                                       Margin="0,2" />
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+        </Border>
+
+        <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+            <Button x:Name="BackUpNowButton" Content="Back Up Now" Padding="12,6" Click="BackUpNow_Click" />
+            <Button Content="Close" Padding="12,6" Click="Close_Click" />
+        </StackPanel>
+    </Grid>
+</suki:SukiWindow>

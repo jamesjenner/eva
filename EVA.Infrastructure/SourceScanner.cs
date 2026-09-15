@@ -75,10 +75,19 @@ public sealed class SourceScanner : ISourceScanner
             var relativePath = GetRelativePath(root, filePath);
             seenFiles.Add(relativePath);
 
-            if (!TryReadFile(filePath, out var fileInfo))
+            var readResult = TryReadFile(filePath, out var fileInfo);
+
+            if (readResult == TryReadFileResult.Unreadable)
             {
                 result.UnreadableFiles.Add(relativePath);
                 _logger?.LogError($"Unreadable source file: {relativePath}");
+                continue;
+            }
+
+            if (readResult == TryReadFileResult.Locked)
+            {
+                result.UnstableFiles.Add(CreateFileEntry(relativePath, fileInfo));
+                _logger?.LogWarning($"File locked by another process, treating as unstable: {relativePath}");
                 continue;
             }
 
@@ -238,7 +247,7 @@ public sealed class SourceScanner : ISourceScanner
         return now - lastFullVerificationUtc >= interval;
     }
 
-    private static bool TryReadFile(string path, out FileInfo fileInfo)
+    private static TryReadFileResult TryReadFile(string path, out FileInfo fileInfo)
     {
         try
         {
@@ -248,14 +257,23 @@ public sealed class SourceScanner : ISourceScanner
                 FileMode.Open,
                 FileAccess.Read,
                 FileShare.ReadWrite);
-            return stream.CanRead;
+            return stream.CanRead 
+                ? TryReadFileResult.Success 
+                : TryReadFileResult.Unreadable;
         }
-        catch
+        catch (IOException)
         {
             fileInfo = new FileInfo(path);
-            return false;
+            return TryReadFileResult.Locked;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            fileInfo = new FileInfo(path);
+            return TryReadFileResult.Unreadable;
         }
     }
+
+    internal enum TryReadFileResult { Success, Locked, Unreadable }
     
     private static async Task<bool> WaitForFileStabilityAsync(string filePath, CancellationToken cancellationToken)
     {

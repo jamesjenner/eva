@@ -12,6 +12,8 @@ public sealed class BackupRunResult
     public bool SecondaryCopyQueued { get; set; }
     public bool Success { get; set; }
     public string? Error { get; set; }
+    public IReadOnlyCollection<FileEntry> UnstableFiles { get; set; } = Array.Empty<FileEntry>();
+    public DateTimeOffset? LastSuccessfulBackupUtc { get; set; }
 }
 
 public sealed class BackupOrchestrator
@@ -31,6 +33,7 @@ public sealed class BackupOrchestrator
     private readonly IRetentionEvaluator? _retentionEvaluator;
     private readonly string _sourceId;
     private string _currentChainId = Guid.NewGuid().ToString("N");
+    private DateTimeOffset? _lastSuccessfulBackupUtc;
 
     public BackupOrchestrator(
         string sourceDirectory,
@@ -120,7 +123,9 @@ public sealed class BackupOrchestrator
             {
                 CreatedArchive = false,
                 Success = true,
-                ArchiveType = ArchiveType.Incremental
+                ArchiveType = ArchiveType.Incremental,
+                UnstableFiles = scanResult.UnstableFiles.ToList(),
+                LastSuccessfulBackupUtc = _lastSuccessfulBackupUtc
             };
         }
 
@@ -136,7 +141,9 @@ public sealed class BackupOrchestrator
             {
                 CreatedArchive = false,
                 Success = true,
-                ArchiveType = ArchiveType.Incremental
+                ArchiveType = ArchiveType.Incremental,
+                UnstableFiles = scanResult.UnstableFiles.ToList(),
+                LastSuccessfulBackupUtc = _lastSuccessfulBackupUtc
             };
         }
 
@@ -179,6 +186,7 @@ public sealed class BackupOrchestrator
             await _stateIndex.UpdateStateAsync(fileEntries!, checkTime, cancellationToken).ConfigureAwait(false);
             _retentionEvaluator?.ApplyRetentionAsync(_primaryArchiveDirectory, cancellationToken).GetAwaiter().GetResult();
             _logger.LogInformation($"Archive created successfully: {archivePath}");
+            _lastSuccessfulBackupUtc = checkTime;
 
             return new BackupRunResult
             {
@@ -186,7 +194,9 @@ public sealed class BackupOrchestrator
                 ArchivePath = archivePath,
                 ArchiveType = archiveType,
                 SecondaryCopyQueued = !string.IsNullOrWhiteSpace(_secondaryArchiveDirectory),
-                Success = true
+                Success = true,
+                UnstableFiles = scanResult.UnstableFiles.ToList(),
+                LastSuccessfulBackupUtc = _lastSuccessfulBackupUtc
             };
         }
         catch (Exception ex)
@@ -197,19 +207,28 @@ public sealed class BackupOrchestrator
                 CreatedArchive = false,
                 Success = false,
                 Error = ex.Message,
-                ArchiveType = archiveType
+                ArchiveType = archiveType,
+                UnstableFiles = scanResult.UnstableFiles.ToList(),
+                LastSuccessfulBackupUtc = _lastSuccessfulBackupUtc
             };
         }
     }
 
-    public async Task StartAsync(TimeSpan? interval = null, CancellationToken cancellationToken = default)
+    public async Task StartAsync(
+        TimeSpan? interval = null,
+        CancellationToken cancellationToken = default,
+        Func<BackupRunResult, Task>? resultHandler = null)
     {
         var period = interval ?? TimeSpan.FromMinutes(15);
         using var timer = new PeriodicTimer(period);
         while (!cancellationToken.IsCancellationRequested)
         {
             await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false);
-            await RunOnceAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
+            var result = await RunOnceAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
+            if (resultHandler is not null)
+            {
+                await resultHandler(result).ConfigureAwait(false);
+            }
         }
     }
 

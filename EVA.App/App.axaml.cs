@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
+using Avalonia.Threading;
 using SukiUI;
 using Avalonia.Styling;
 using ConfigStore = EVA.Infrastructure.ConfigStore;
@@ -19,9 +20,11 @@ public partial class App : Application
     public static PasswordStore PasswordStore { get; } = new();
     public static BackupOrchestrator? Orchestrator { get; private set; }
     public static CancellationTokenSource? OrchestratorCancellation { get; private set; }
+    public static BackupStatusWindow? StatusWindow { get; internal set; }
 
-    private TrayIcon? _trayIcon;
+    private static TrayIcon? _trayIcon;
     private SukiTheme? _theme;
+    private static TimeSpan _orchestratorInterval = TimeSpan.FromMinutes(15);
 
     public override void Initialize()
     {
@@ -103,10 +106,12 @@ public partial class App : Application
             sourceId: "eva-app");
 
         Orchestrator = orchestrator;
+        _orchestratorInterval = TimeSpan.FromMinutes(config.BackupIntervalMinutes);
 
         _ = Task.Run(() => orchestrator.StartAsync(
-            TimeSpan.FromMinutes(config.BackupIntervalMinutes),
-            OrchestratorCancellation.Token));
+            _orchestratorInterval,
+            OrchestratorCancellation.Token,
+            result => HandleBackupResultAsync(result, _orchestratorInterval)));
     }
 
     public static async Task RefreshOrchestratorAsync(BackupConfiguration config)
@@ -221,7 +226,7 @@ public partial class App : Application
         }
     }
 
-    private static async Task CreateSnapshotNowAsync()
+    public static async Task CreateSnapshotNowAsync()
     {
         if (Orchestrator is null)
         {
@@ -232,7 +237,8 @@ public partial class App : Application
         System.Diagnostics.Debug.WriteLine("App.axaml.cs: calling Orchestrator.RunOnceAsync()");
         try
         {
-            await Orchestrator.RunOnceAsync(manualSnapshot: true, cancellationToken: CancellationToken.None);
+            var result = await Orchestrator.RunOnceAsync(manualSnapshot: true, cancellationToken: CancellationToken.None);
+            await HandleBackupResultAsync(result, _orchestratorInterval);
         }
         catch (Exception ex)
         {
@@ -249,5 +255,53 @@ public partial class App : Application
     private static void ShowRestoreSnapshot()
     {
         // TODO: implement RestoreSnapshotWindow
+    }
+
+    private static Task HandleBackupResultAsync(BackupRunResult result, TimeSpan interval)
+    {
+        return Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            if (result.UnstableFiles.Count > 0)
+            {
+                var paths = result.UnstableFiles.Select(file => file.RelativePath);
+                var nextRun = DateTimeOffset.UtcNow + interval;
+                ShowUnstableFilesToast(result.UnstableFiles.Count);
+                ShowOrUpdateStatusWindow(paths, result.LastSuccessfulBackupUtc, nextRun);
+            }
+            else
+            {
+                CloseStatusWindowIfOpen();
+            }
+        }).GetTask();
+    }
+
+    private static void ShowOrUpdateStatusWindow(
+        IEnumerable<string> unstableFilePaths,
+        DateTimeOffset? lastSuccessfulBackup,
+        DateTimeOffset nextScheduledRun)
+    {
+        if (StatusWindow is not null)
+        {
+            StatusWindow.Update(unstableFilePaths, lastSuccessfulBackup, nextScheduledRun);
+        }
+        else
+        {
+            StatusWindow = new BackupStatusWindow(unstableFilePaths, lastSuccessfulBackup, nextScheduledRun);
+            StatusWindow.Closed += (_, _) => StatusWindow = null;
+            StatusWindow.Show();
+        }
+    }
+
+    private static void CloseStatusWindowIfOpen()
+    {
+        StatusWindow?.Close();
+        StatusWindow = null;
+    }
+
+    private static void ShowUnstableFilesToast(int fileCount)
+    {
+        System.Diagnostics.Debug.WriteLine(
+            $"Backup incomplete: {fileCount} file{(fileCount == 1 ? "" : "s")} could not be read and " +
+            $"{(fileCount == 1 ? "was" : "were")} skipped. See the status window for details.");
     }
 }
