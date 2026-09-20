@@ -12,7 +12,7 @@ namespace EVA.App;
 
 public partial class RestoreWindow : SukiWindow
 {
-    private static readonly ISukiDialogManager DialogManager = new SukiDialogManager();
+    private readonly ISukiDialogManager _dialogManager = new SukiDialogManager();
     private readonly string _archivePath;
     private readonly string _password;
     private readonly IArchiveRestorer _restorer;
@@ -29,7 +29,7 @@ public partial class RestoreWindow : SukiWindow
         _password = password;
         _restorer = restorer ?? new ArchiveRestorer();
         ArchivePathText.Text = archivePath;
-        DialogHost.Manager = DialogManager;
+        DialogHost.Manager = _dialogManager;
     }
 
     private async void Browse_Click(object? sender, RoutedEventArgs e)
@@ -109,12 +109,12 @@ public partial class RestoreWindow : SukiWindow
             MaxHeight = 280
         };
 
-        DialogManager.CreateDialog()
+        _dialogManager.CreateDialog()
             .WithTitle("Overwrite existing files?")
             .WithContent(content)
             .OfType(NotificationType.Warning)
-            .WithActionButton("Cancel", _ => completion.TrySetResult(false))
-            .WithActionButton("Restore", _ => completion.TrySetResult(true), true)
+            .WithActionButton("Cancel", d => { d.Dismiss(); completion.TrySetResult(false); })
+            .WithActionButton("Restore", d => { d.Dismiss(); completion.TrySetResult(true); }, true)
             .TryShow();
 
         return await completion.Task;
@@ -129,7 +129,8 @@ public partial class RestoreWindow : SukiWindow
         }
 
         ResultSummaryText.Text = $"Restore complete. Files restored: {result.FilesRestored.Count}. " +
-                                 $"Existing files reported: {result.FilesToOverwrite.Count}.";
+                     $"Directories restored: {result.DirectoriesRestored.Count}. " +
+                     $"Existing files reported: {result.FilesToOverwrite.Count}.";
     }
 
     private void SetBusy(bool isBusy)

@@ -83,7 +83,7 @@ public sealed class BackupOrchestrator
         }
 
         _scanner = scanner ?? new SourceScanner(_sourceDirectory, stateIndex ?? new LocalScanStateIndex(_sourceDirectory), excludedPaths: excludedPaths);
-        _writer = writer ?? new ArchiveWriter();
+        _writer = writer ?? new ArchiveWriter(_sourceDirectory);
         _reader = reader ?? new ArchiveReader();
         _validator = validator ?? new ArchiveValidator();
         _logger = logger ?? new NullEventLogger();
@@ -201,7 +201,10 @@ public sealed class BackupOrchestrator
             }
 
             await _stateIndex.UpdateStateAsync(fileEntries!, checkTime, cancellationToken).ConfigureAwait(false);
-            _retentionEvaluator?.ApplyRetentionAsync(_primaryArchiveDirectory, cancellationToken).GetAwaiter().GetResult();
+            if (_retentionEvaluator is not null)
+            {
+                await _retentionEvaluator.ApplyRetentionAsync(_primaryArchiveDirectory, cancellationToken).ConfigureAwait(false);
+            }
             _logger.LogInformation($"Archive created successfully: {archivePath}");
             _lastSuccessfulBackupUtc = checkTime;
 

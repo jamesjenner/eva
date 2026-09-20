@@ -9,6 +9,7 @@ using Konscious.Security.Cryptography;
 
 namespace EVA.Infrastructure;
 
+// Existing .eva files use the superseded JSON payload and must be deleted before testing this format.
 public sealed class ArchiveWriter : IArchiveWriter
 {
     private const string Magic = "EVA1";
@@ -18,6 +19,14 @@ public sealed class ArchiveWriter : IArchiveWriter
     private const int SaltLength = 16;
     private const int NonceLength = 12;
     private const int AuthenticationTagLength = 16;
+    private const ushort PayloadFormatVersion = 1;
+    private const uint EndOfPayloadMarker = 0x45564130;
+    private readonly string? _sourceDirectory;
+
+    public ArchiveWriter(string? sourceDirectory = null)
+    {
+        _sourceDirectory = string.IsNullOrWhiteSpace(sourceDirectory) ? null : Path.GetFullPath(sourceDirectory);
+    }
 
     public async Task WriteArchiveAsync(
         ArchiveManifest manifest,
@@ -78,7 +87,7 @@ public sealed class ArchiveWriter : IArchiveWriter
             manifest.Directories.Clear();
             manifest.Directories.AddRange(directoryEntries);
 
-            var payload = BuildPayload(manifest, fileEntries);
+            var payload = await BuildPayloadAsync(manifest, fileEntries, directoryEntries, cancellationToken).ConfigureAwait(false);
             var salt = RandomNumberGenerator.GetBytes(SaltLength);
             var nonce = RandomNumberGenerator.GetBytes(NonceLength);
             var kdfParameters = CreateKdfParameters();
@@ -151,29 +160,98 @@ public sealed class ArchiveWriter : IArchiveWriter
         return new DateTimeOffset(truncatedTicks, TimeSpan.Zero);
     }
 
-    private static byte[] BuildPayload(ArchiveManifest manifest, IReadOnlyCollection<FileEntry> fileEntries)
+    private async Task<byte[]> BuildPayloadAsync(
+        ArchiveManifest manifest,
+        IReadOnlyCollection<FileEntry> fileEntries,
+        IReadOnlyCollection<DirectoryEntry> directoryEntries,
+        CancellationToken cancellationToken)
     {
-        var payloadModel = new
-        {
-            manifest,
-            files = fileEntries
-        };
-
-        var json = JsonSerializer.Serialize(payloadModel, new JsonSerializerOptions
+        var manifestJson = JsonSerializer.Serialize(manifest, new JsonSerializerOptions
         {
             WriteIndented = false,
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
             DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.Never
         });
+        var manifestBytes = Encoding.UTF8.GetBytes(manifestJson);
 
-        var jsonBytes = Encoding.UTF8.GetBytes(json);
+        using var uncompressed = new MemoryStream();
+        using (var writer = new BinaryWriter(uncompressed, Encoding.UTF8, leaveOpen: true))
+        {
+            writer.Write(PayloadFormatVersion);
+            writer.Write(manifestBytes.Length);
+            writer.Write(manifestBytes);
+            writer.Write(fileEntries.Count);
+
+            foreach (var entry in fileEntries)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                WriteString(writer, entry.RelativePath, sizeof(ushort));
+                writer.Write((byte)entry.Operation);
+                writer.Write(entry.FileSize);
+                writer.Write(NormalizeUtcTimestamp(entry.LastModifiedUtc).ToUnixTimeMilliseconds());
+                WriteString(writer, entry.Sha256, sizeof(byte));
+
+                var content = entry.Operation == FileOperation.Deleted
+                    ? Array.Empty<byte>()
+                    : await ReadSourceBytesAsync(entry, cancellationToken).ConfigureAwait(false);
+                writer.Write((long)content.Length);
+                writer.Write(content);
+            }
+
+            writer.Write(directoryEntries.Count);
+            foreach (var entry in directoryEntries)
+            {
+                WriteString(writer, entry.RelativePath, sizeof(ushort));
+                writer.Write((byte)entry.Operation);
+                writer.Write(NormalizeUtcTimestamp(entry.LastModifiedUtc ?? DateTimeOffset.UnixEpoch).ToUnixTimeMilliseconds());
+            }
+
+            writer.Write(EndOfPayloadMarker);
+        }
+
         using var output = new MemoryStream();
         using (var gzip = new GZipStream(output, CompressionLevel.Optimal, leaveOpen: true))
         {
-            gzip.Write(jsonBytes, 0, jsonBytes.Length);
+            uncompressed.Position = 0;
+            await uncompressed.CopyToAsync(gzip, cancellationToken).ConfigureAwait(false);
         }
 
         return output.ToArray();
+    }
+
+    private async Task<byte[]> ReadSourceBytesAsync(FileEntry entry, CancellationToken cancellationToken)
+    {
+        var sourcePath = _sourceDirectory is null
+            ? entry.ContentRef?.ObjectId
+            : Path.Combine(_sourceDirectory, entry.RelativePath.Replace('/', Path.DirectorySeparatorChar));
+        if (string.IsNullOrWhiteSpace(sourcePath) || !File.Exists(sourcePath))
+        {
+            if (_sourceDirectory is null)
+            {
+                return entry.FileSize > int.MaxValue ? throw new InvalidOperationException("Archive entry is too large.") : new byte[(int)entry.FileSize];
+            }
+
+            throw new FileNotFoundException($"Source file was not found for archive entry '{entry.RelativePath}'.", sourcePath);
+        }
+
+        return await File.ReadAllBytesAsync(sourcePath, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static void WriteString(BinaryWriter writer, string? value, int lengthSize)
+    {
+        var bytes = Encoding.UTF8.GetBytes(value ?? string.Empty);
+        if (lengthSize == sizeof(byte))
+        {
+            if (bytes.Length > byte.MaxValue) throw new InvalidOperationException("Payload string is too long.");
+            writer.Write((byte)bytes.Length);
+        }
+        else
+        {
+            if (bytes.Length > ushort.MaxValue) throw new InvalidOperationException("Payload string is too long.");
+            writer.Write((ushort)bytes.Length);
+        }
+
+        writer.Write(bytes);
     }
 
     private static byte[] CreateKdfParameters()

@@ -100,27 +100,34 @@ public sealed class ArchiveReader : IArchiveReader
             throw new InvalidOperationException("AES-GCM authentication failed.", ex);
         }
 
-        using var compressedStream = new MemoryStream(plaintext);
-        using var decompressor = new GZipStream(compressedStream, CompressionMode.Decompress);
-        using var output = new MemoryStream();
-        await decompressor.CopyToAsync(output, cancellationToken).ConfigureAwait(false);
+        var payload = await ParsePayloadAsync(plaintext, cancellationToken).ConfigureAwait(false);
+        ValidateManifestIdentity(payload.Manifest, header);
+        ValidateManifestStructure(payload.Manifest);
+        return payload.Manifest;
+    }
 
-        var json = Encoding.UTF8.GetString(output.ToArray());
-        using var document = JsonDocument.Parse(json);
-        if (!document.RootElement.TryGetProperty("manifest", out var manifestElement))
+    public async Task<byte[]> ReadFileContentAsync(string archivePath, string relativePath, string password, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(relativePath))
         {
-            throw new InvalidOperationException("Archive payload does not contain a manifest.");
+            throw new ArgumentException("Relative path is required.", nameof(relativePath));
         }
 
-        var manifest = manifestElement.Deserialize<ArchiveManifest>(new JsonSerializerOptions
+        var bytes = await File.ReadAllBytesAsync(archivePath, cancellationToken).ConfigureAwait(false);
+        var header = ParseHeader(bytes);
+        ValidateHeaderConsistency(header, bytes.Length);
+        var plaintext = DecryptPayload(bytes, header, password);
+        var payload = await ParsePayloadAsync(plaintext, cancellationToken).ConfigureAwait(false);
+        ValidateManifestIdentity(payload.Manifest, header);
+        ValidateManifestStructure(payload.Manifest);
+
+        var entry = payload.Files.FirstOrDefault(item => string.Equals(item.Entry.RelativePath, relativePath, StringComparison.OrdinalIgnoreCase));
+        if (entry is null)
         {
-            PropertyNameCaseInsensitive = true
-        }) ?? throw new InvalidOperationException("Archive manifest is missing.");
+            throw new FileNotFoundException("File entry was not found in the archive.", relativePath);
+        }
 
-        ValidateManifestIdentity(manifest, header);
-        ValidateManifestStructure(manifest);
-
-        return manifest;
+        return entry.Content;
     }
 
     public Task<bool> ValidateArchiveAsync(string archivePath, string password, CancellationToken cancellationToken = default)
@@ -134,6 +141,162 @@ public sealed class ArchiveReader : IArchiveReader
         {
             return Task.FromResult(false);
         }
+    }
+
+    private static byte[] DecryptPayload(byte[] bytes, ArchiveHeader header, string password)
+    {
+        if (string.IsNullOrWhiteSpace(password))
+        {
+            throw new ArgumentException("Password is required.", nameof(password));
+        }
+
+        var aad = bytes.AsSpan(0, (int)header.HeaderLength).ToArray();
+        var ciphertextLength = (int)header.PayloadLength;
+        var minimumLength = (int)header.HeaderLength + ciphertextLength + AuthenticationTagLength;
+        if (bytes.Length < minimumLength)
+        {
+            throw new InvalidOperationException("Archive length is inconsistent with the public header.");
+        }
+
+        var ciphertext = bytes.AsSpan((int)header.HeaderLength, ciphertextLength).ToArray();
+        var tag = bytes.AsSpan(bytes.Length - AuthenticationTagLength, AuthenticationTagLength).ToArray();
+        var key = DeriveKey(password, header.Salt, header.KdfParameters);
+        var plaintext = new byte[ciphertext.Length];
+        try
+        {
+            using var aes = new AesGcm(key, AuthenticationTagLength);
+            aes.Decrypt(header.Nonce, ciphertext, tag, plaintext, aad);
+        }
+        catch (CryptographicException ex)
+        {
+            throw new InvalidOperationException("AES-GCM authentication failed.", ex);
+        }
+
+        return plaintext;
+    }
+
+    private static async Task<PayloadData> ParsePayloadAsync(byte[] encryptedPayload, CancellationToken cancellationToken)
+    {
+        using var compressedStream = new MemoryStream(encryptedPayload);
+        using var decompressor = new GZipStream(compressedStream, CompressionMode.Decompress);
+        using var output = new MemoryStream();
+        await decompressor.CopyToAsync(output, cancellationToken).ConfigureAwait(false);
+
+        using var input = new MemoryStream(output.ToArray());
+        using var reader = new BinaryReader(input, Encoding.UTF8, leaveOpen: false);
+        var payloadVersion = reader.ReadUInt16();
+        if (payloadVersion != 1)
+        {
+            throw new InvalidOperationException("Payload format version is unsupported.");
+        }
+
+        var manifestLength = ReadLength(reader, "manifest");
+        var manifestJson = Encoding.UTF8.GetString(ReadExact(reader, manifestLength));
+        var manifest = JsonSerializer.Deserialize<ArchiveManifest>(manifestJson, new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true
+        }) ?? throw new InvalidOperationException("Archive manifest is missing.");
+
+        var files = new List<PayloadFile>();
+        var fileCount = ReadCount(reader, "file");
+        for (var index = 0; index < fileCount; index++)
+        {
+            var relativePath = ReadString(reader, sizeof(ushort));
+            var operation = ReadOperation(reader);
+            var fileSize = reader.ReadInt64();
+            var lastModifiedUtc = DateTimeOffset.FromUnixTimeMilliseconds(reader.ReadInt64());
+            var sha256 = ReadString(reader, sizeof(byte));
+            var contentLength = reader.ReadInt64();
+            if (contentLength < 0 || contentLength > int.MaxValue || operation == FileOperation.Deleted && contentLength != 0)
+            {
+                throw new InvalidOperationException("Payload file content length is invalid.");
+            }
+
+            files.Add(new PayloadFile
+            {
+                Entry = new FileEntry
+                {
+                    RelativePath = relativePath,
+                    Operation = operation,
+                    FileSize = fileSize,
+                    LastModifiedUtc = lastModifiedUtc,
+                    Sha256 = sha256
+                },
+                Content = ReadExact(reader, (int)contentLength)
+            });
+        }
+
+        var directories = new List<DirectoryEntry>();
+        var directoryCount = ReadCount(reader, "directory");
+        for (var index = 0; index < directoryCount; index++)
+        {
+            directories.Add(new DirectoryEntry
+            {
+                RelativePath = ReadString(reader, sizeof(ushort)),
+                Operation = ReadOperation(reader),
+                LastModifiedUtc = DateTimeOffset.FromUnixTimeMilliseconds(reader.ReadInt64())
+            });
+        }
+
+        if (reader.ReadUInt32() != 0x45564130)
+        {
+            throw new InvalidOperationException("Payload end marker is invalid.");
+        }
+
+        if (input.Position != input.Length)
+        {
+            throw new InvalidOperationException("Payload contains trailing data.");
+        }
+
+        manifest.Files = files.Select(file => file.Entry).ToList();
+        manifest.Directories = directories;
+        return new PayloadData(manifest, files);
+    }
+
+    private static FileOperation ReadOperation(BinaryReader reader)
+    {
+        var value = reader.ReadByte();
+        if (!Enum.IsDefined(typeof(FileOperation), (int)value))
+        {
+            throw new InvalidOperationException("Payload file operation is invalid.");
+        }
+
+        return (FileOperation)value;
+    }
+
+    private static string ReadString(BinaryReader reader, int lengthSize)
+    {
+        var length = lengthSize == sizeof(byte) ? reader.ReadByte() : reader.ReadUInt16();
+        return Encoding.UTF8.GetString(ReadExact(reader, length));
+    }
+
+    private static int ReadLength(BinaryReader reader, string name)
+    {
+        var length = reader.ReadInt32();
+        if (length < 0) throw new InvalidOperationException($"Payload {name} length is invalid.");
+        return length;
+    }
+
+    private static int ReadCount(BinaryReader reader, string name)
+    {
+        var count = reader.ReadInt32();
+        if (count < 0) throw new InvalidOperationException($"Payload {name} count is invalid.");
+        return count;
+    }
+
+    private static byte[] ReadExact(BinaryReader reader, int length)
+    {
+        var bytes = reader.ReadBytes(length);
+        if (bytes.Length != length) throw new InvalidOperationException("Payload is truncated.");
+        return bytes;
+    }
+
+    private sealed record PayloadData(ArchiveManifest Manifest, List<PayloadFile> Files);
+
+    private sealed class PayloadFile
+    {
+        public FileEntry Entry { get; set; } = new();
+        public byte[] Content { get; set; } = Array.Empty<byte>();
     }
 
     private static void ValidateHeaderConsistency(ArchiveHeader header, long totalFileLength)
@@ -241,7 +404,7 @@ public sealed class ArchiveReader : IArchiveReader
                 throw new InvalidOperationException("Manifest file size cannot be negative.");
             }
 
-            if (string.IsNullOrWhiteSpace(file.Sha256))
+            if (file.Operation != FileOperation.Deleted && string.IsNullOrWhiteSpace(file.Sha256))
             {
                 throw new InvalidOperationException("Manifest file entry has no SHA-256 hash.");
             }

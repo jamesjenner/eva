@@ -35,11 +35,14 @@ public sealed class ArchiveRestorer : IArchiveRestorer
             Directory.CreateDirectory(destination);
 
             var manifests = await LoadChainAsync(targetPath, password, cancellationToken).ConfigureAwait(false);
-            foreach (var manifest in manifests)
+            var replayedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var overwritePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var archive in manifests)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                ApplyDeletedEntries(manifest, destination, result, dryRun);
-                await ApplyFileEntriesAsync(manifest, destination, result, dryRun, overwriteExisting, cancellationToken).ConfigureAwait(false);
+                ApplyDirectoryEntries(archive.Manifest, destination, result, dryRun);
+                ApplyDeletedEntries(archive.Manifest, destination, replayedPaths, result, dryRun);
+                await ApplyFileEntriesAsync(archive.Path, archive.Manifest, destination, replayedPaths, overwritePaths, result, dryRun, password, overwriteExisting, cancellationToken).ConfigureAwait(false);
             }
 
             result.Success = result.Errors.Count == 0;
@@ -57,7 +60,7 @@ public sealed class ArchiveRestorer : IArchiveRestorer
         return result;
     }
 
-    private async Task<IReadOnlyList<ArchiveManifest>> LoadChainAsync(
+    private async Task<IReadOnlyList<ArchiveFile>> LoadChainAsync(
         string targetPath,
         string password,
         CancellationToken cancellationToken)
@@ -65,7 +68,7 @@ public sealed class ArchiveRestorer : IArchiveRestorer
         var targetManifest = await _archiveReader.ReadManifestAsync(targetPath, password, cancellationToken).ConfigureAwait(false);
         if (targetManifest.ArchiveType == ArchiveType.Full)
         {
-            return [targetManifest];
+            return [new ArchiveFile(targetPath, targetManifest)];
         }
 
         var directory = Path.GetDirectoryName(targetPath) ?? throw new InvalidOperationException("Archive directory could not be determined.");
@@ -87,21 +90,25 @@ public sealed class ArchiveRestorer : IArchiveRestorer
             }
         }
 
-        var byId = manifests.ToDictionary(item => item.Manifest.ArchiveId, item => item.Manifest, StringComparer.OrdinalIgnoreCase);
-        var chain = new List<ArchiveManifest>();
+        var byId = manifests.ToDictionary(item => item.Manifest.ArchiveId, item => new ArchiveFile(item.Path, item.Manifest), StringComparer.OrdinalIgnoreCase);
+        var chain = new List<ArchiveFile>();
+        var currentPath = targetPath;
         var current = targetManifest;
         while (true)
         {
-            chain.Add(current);
+            chain.Add(new ArchiveFile(currentPath, current));
             if (current.ArchiveType == ArchiveType.Full)
             {
                 break;
             }
 
-            if (string.IsNullOrWhiteSpace(current.ParentArchiveId) || !byId.TryGetValue(current.ParentArchiveId, out current!))
+            if (string.IsNullOrWhiteSpace(current.ParentArchiveId) || !byId.TryGetValue(current.ParentArchiveId, out var parent))
             {
                 throw new InvalidOperationException("The selected archive chain does not contain its full backup.");
             }
+
+            currentPath = parent.Path;
+            current = parent.Manifest;
         }
 
         chain.Reverse();
@@ -111,6 +118,7 @@ public sealed class ArchiveRestorer : IArchiveRestorer
     private static void ApplyDeletedEntries(
         ArchiveManifest manifest,
         string destination,
+        HashSet<string> replayedPaths,
         RestoreResult result,
         bool dryRun)
     {
@@ -119,19 +127,51 @@ public sealed class ArchiveRestorer : IArchiveRestorer
             var path = GetDestinationPath(destination, deleted.RelativePath);
             if (File.Exists(path))
             {
-                if (!dryRun)
+                if (!dryRun || replayedPaths.Contains(path))
                 {
-                    File.Delete(path);
+                    if (!dryRun || replayedPaths.Contains(path))
+                    {
+                        File.Delete(path);
+                    }
                 }
+
+                replayedPaths.Remove(path);
             }
         }
     }
 
-    private static async Task ApplyFileEntriesAsync(
+    private static void ApplyDirectoryEntries(
         ArchiveManifest manifest,
         string destination,
         RestoreResult result,
+        bool dryRun)
+    {
+        foreach (var entry in manifest.Directories)
+        {
+            if (!entry.Exists)
+            {
+                continue;
+            }
+
+            var path = GetDestinationPath(destination, entry.RelativePath);
+            if (!dryRun)
+            {
+                Directory.CreateDirectory(path);
+            }
+
+            result.DirectoriesRestored.Add(path);
+        }
+    }
+
+    private async Task ApplyFileEntriesAsync(
+        string archivePath,
+        ArchiveManifest manifest,
+        string destination,
+        HashSet<string> replayedPaths,
+        HashSet<string> overwritePaths,
+        RestoreResult result,
         bool dryRun,
+        string password,
         bool overwriteExisting,
         CancellationToken cancellationToken)
     {
@@ -143,10 +183,12 @@ public sealed class ArchiveRestorer : IArchiveRestorer
             {
                 if (File.Exists(path))
                 {
-                    if (!dryRun)
+                    if (!dryRun || replayedPaths.Contains(path))
                     {
                         File.Delete(path);
                     }
+
+                    replayedPaths.Remove(path);
                 }
 
                 continue;
@@ -154,9 +196,12 @@ public sealed class ArchiveRestorer : IArchiveRestorer
 
             if (File.Exists(path))
             {
-                if (!overwriteExisting)
+                if (!overwriteExisting && !replayedPaths.Contains(path))
                 {
-                    result.FilesToOverwrite.Add(path);
+                    if (overwritePaths.Add(path))
+                    {
+                        result.FilesToOverwrite.Add(path);
+                    }
                     continue;
                 }
             }
@@ -164,6 +209,7 @@ public sealed class ArchiveRestorer : IArchiveRestorer
             if (dryRun)
             {
                 result.FilesRestored.Add(path);
+                replayedPaths.Add(path);
                 continue;
             }
 
@@ -173,20 +219,18 @@ public sealed class ArchiveRestorer : IArchiveRestorer
                 Directory.CreateDirectory(parent);
             }
 
-            if (entry.ContentRef is not { ObjectId: var sourcePath } || !File.Exists(sourcePath))
+            byte[] content;
+            try
             {
-                if (entry.FileSize != 0)
-                {
-                    result.Errors.Add($"Archive content is unavailable for '{entry.RelativePath}'.");
-                    return;
-                }
-
-                await using var emptyStream = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None);
-                result.FilesRestored.Add(path);
-                continue;
+                content = await _archiveReader.ReadFileContentAsync(archivePath, entry.RelativePath, password, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                result.Errors.Add($"Could not read archive content for '{entry.RelativePath}': {ex.Message}");
+                return;
             }
 
-            File.Copy(sourcePath, path, overwrite: overwriteExisting);
+            await File.WriteAllBytesAsync(path, content, cancellationToken).ConfigureAwait(false);
             var actualHash = await ComputeSha256Async(path, cancellationToken).ConfigureAwait(false);
             if (!string.IsNullOrWhiteSpace(entry.Sha256) && !string.Equals(actualHash, entry.Sha256, StringComparison.OrdinalIgnoreCase))
             {
@@ -195,6 +239,7 @@ public sealed class ArchiveRestorer : IArchiveRestorer
             }
 
             result.FilesRestored.Add(path);
+            replayedPaths.Add(path);
         }
     }
 
@@ -218,4 +263,6 @@ public sealed class ArchiveRestorer : IArchiveRestorer
 
         return path;
     }
+
+    private sealed record ArchiveFile(string Path, ArchiveManifest Manifest);
 }

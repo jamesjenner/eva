@@ -234,7 +234,6 @@ public partial class App : Application
             return;
         }
 
-        System.Diagnostics.Debug.WriteLine("App.axaml.cs: calling Orchestrator.RunOnceAsync()");
         try
         {
             var result = await Orchestrator.RunOnceAsync(manualSnapshot: true, cancellationToken: CancellationToken.None);

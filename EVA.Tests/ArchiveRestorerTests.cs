@@ -40,17 +40,20 @@ public sealed class ArchiveRestorerTests : IDisposable
     {
         var archiveDirectory = CreateDirectory();
         var destination = CreateDirectory();
-        AddArchive(archiveDirectory, FullManifest("full", new[] { Added("one.txt") }));
-        AddArchive(archiveDirectory, IncrementalManifest("incremental-1", "full", new[] { Added("two.txt") }));
-        var selected = AddArchive(archiveDirectory, IncrementalManifest("incremental-2", "incremental-1", new[] { Modified("one.txt") }));
+        var one = CreateContentFile("one-v1");
+        var two = CreateContentFile("two");
+        var oneV2 = CreateContentFile("one-v2");
+        AddArchive(archiveDirectory, FullManifest("full", new[] { Added("one.txt", one, "one-v1") }));
+        AddArchive(archiveDirectory, IncrementalManifest("incremental-1", "full", new[] { Added("two.txt", two, "two") }));
+        var selected = AddArchive(archiveDirectory, IncrementalManifest("incremental-2", "incremental-1", new[] { Modified("one.txt", oneV2, "one-v2") }));
 
         var result = await CreateRestorer(archiveDirectory).RestoreAsync(
             selected, destination, "password", RestoreMode.AlternativeLocation);
 
         Assert.True(result.Success);
-        Assert.True(File.Exists(Path.Combine(destination, "one.txt")));
-        Assert.True(File.Exists(Path.Combine(destination, "two.txt")));
-        Assert.Equal(2, result.FilesRestored.Count);
+        Assert.Equal("one-v2", await File.ReadAllTextAsync(Path.Combine(destination, "one.txt")));
+        Assert.Equal("two", await File.ReadAllTextAsync(Path.Combine(destination, "two.txt")));
+        Assert.Equal(3, result.FilesRestored.Count);
     }
 
     [Fact]
@@ -196,7 +199,14 @@ public sealed class ArchiveRestorerTests : IDisposable
         ContentRef = contentPath is null ? null : new ContentRef { ObjectId = contentPath }
     };
 
-    private static FileEntry Modified(string path) => new() { RelativePath = path, Operation = FileOperation.Modified };
+    private static FileEntry Modified(string path, string? contentPath = null, string? expectedContent = null) => new()
+    {
+        RelativePath = path,
+        Operation = FileOperation.Modified,
+        FileSize = expectedContent?.Length ?? 0,
+        Sha256 = expectedContent is null ? string.Empty : ComputeSha256(expectedContent),
+        ContentRef = contentPath is null ? null : new ContentRef { ObjectId = contentPath }
+    };
     private static DeletedEntry Deleted(string path) => new() { RelativePath = path };
 
     private static string ComputeSha256(string content)
@@ -222,6 +232,17 @@ public sealed class ArchiveRestorerTests : IDisposable
 
         public Task<ArchiveManifest> ReadManifestAsync(string archivePath, string password, CancellationToken cancellationToken = default)
             => Task.FromResult(archives[archivePath]);
+
+        public Task<byte[]> ReadFileContentAsync(string archivePath, string relativePath, string password, CancellationToken cancellationToken = default)
+        {
+            var entry = archives[archivePath].Files.FirstOrDefault(file => string.Equals(file.RelativePath, relativePath, StringComparison.OrdinalIgnoreCase));
+            if (entry?.ContentRef?.ObjectId is { } sourcePath && File.Exists(sourcePath))
+            {
+                return File.ReadAllBytesAsync(sourcePath, cancellationToken);
+            }
+
+            return Task.FromResult(Array.Empty<byte>());
+        }
 
         public Task<bool> ValidateArchiveAsync(string archivePath, string password, CancellationToken cancellationToken = default)
             => Task.FromResult(true);
