@@ -134,7 +134,7 @@ public sealed class RetentionEvaluator : IRetentionEvaluator
             return age.TotalDays <= policy.IncrementalRetentionDays;
         }
 
-        if (archive.ArchiveType != ArchiveType.Snapshot)
+        if (archive.ArchiveType != ArchiveType.Full)
         {
             return false;
         }

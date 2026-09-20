@@ -45,7 +45,7 @@ public sealed class BackupScheduler
     {
         if (manualSnapshotRequested)
         {
-            return ArchiveType.Snapshot;
+            return ArchiveType.Full;
         }
 
         if (!hasChanges)
@@ -56,7 +56,7 @@ public sealed class BackupScheduler
         var weeklyDue = weeklySnapshotExistsForCurrentWeek == false && IsWeeklySnapshotDue(currentCheckTime, lastSnapshotUtc);
         var monthlyDue = monthlySnapshotExistsForCurrentMonth == false && IsMonthlySnapshotDue(currentCheckTime, lastSnapshotUtc);
 
-        return weeklyDue || monthlyDue ? ArchiveType.Snapshot : ArchiveType.Incremental;
+        return weeklyDue || monthlyDue ? ArchiveType.Full : ArchiveType.Incremental;
     }
 
     private static bool IsSameCalendarWeek(DateTimeOffset a, DateTimeOffset b)

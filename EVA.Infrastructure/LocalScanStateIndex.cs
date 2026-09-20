@@ -77,6 +77,11 @@ public sealed class LocalScanStateIndex : IArchiveIndex
                 continue;
             }
 
+            if(file.Operation == FileOperation.Deleted) {
+                snapshot.Files.Remove(file.RelativePath);
+                continue;
+            }
+            
             snapshot.Files[file.RelativePath] = new FileStateEntry
             {
                 RelativePath = file.RelativePath,

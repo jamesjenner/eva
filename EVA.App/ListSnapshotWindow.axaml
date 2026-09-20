@@ -4,7 +4,7 @@
         xmlns:suki="clr-namespace:SukiUI.Controls;assembly=SukiUI"
         x:Class="EVA.App.ListSnapshotWindow"
         x:CompileBindings="False"
-        Title="Snapshot content"
+        Title="Full backup contents"
         Width="1100"
         Height="760"
         MinWidth="760"

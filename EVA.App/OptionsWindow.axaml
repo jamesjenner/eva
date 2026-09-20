@@ -36,7 +36,7 @@
                                 <ComboBoxItem>60 minutes</ComboBoxItem>
                             </ComboBox>
 
-                            <TextBlock Grid.Row="2" Grid.Column="0" VerticalAlignment="Center">Snapshot frequency</TextBlock>
+                            <TextBlock Grid.Row="2" Grid.Column="0" VerticalAlignment="Center">Full backup frequency</TextBlock>
                             <ComboBox x:Name="SnapshotFrequencyCombo" Grid.Row="2" Grid.Column="1" HorizontalAlignment="Stretch" Margin="-6,0,-6,0" >
                                 <ComboBoxItem>Daily</ComboBoxItem>
                                 <ComboBoxItem>Weekly</ComboBoxItem>
@@ -69,15 +69,15 @@
                                 <ColumnDefinition Width="120" />
                                 <ColumnDefinition Width="80" />
                             </Grid.ColumnDefinitions>                                
-                            <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center">Incremental archives retention</TextBlock>
+                            <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center">Incremental backup retention</TextBlock>
                             <TextBox Grid.Row="0" Grid.Column="1" x:Name="IncrementalRetentionText" />
                             <TextBlock Grid.Row="0" Grid.Column="2" VerticalAlignment="Center">days</TextBlock>
 
-                            <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center">Weekly snapshots retention</TextBlock>
+                            <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center">Weekly full backups retention</TextBlock>
                             <TextBox Grid.Row="1" Grid.Column="1" x:Name="WeeklyRetentionText" />
                             <TextBlock Grid.Row="1" Grid.Column="2" VerticalAlignment="Center">days</TextBlock>
 
-                            <TextBlock Grid.Row="2" Grid.Column="0" VerticalAlignment="Top" Margin="0,4,0,0">Monthly snapshots retention</TextBlock>
+                            <TextBlock Grid.Row="2" Grid.Column="0" VerticalAlignment="Top" Margin="0,4,0,0">Monthly full backups retention</TextBlock>
                             <StackPanel Grid.Row="2" Grid.Column="1" Spacing="6" Margin="0,4,0,0">
                                 <RadioButton x:Name="MonthlyRetentionForeverRadio"
                                             GroupName="MonthlyRetention"

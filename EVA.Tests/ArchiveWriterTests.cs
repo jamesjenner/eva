@@ -205,7 +205,7 @@ public sealed class ArchiveWriterTests : IDisposable
         {
             FormatVersion = 1,
             ArchiveId = "archive-001",
-            ArchiveType = ArchiveType.Snapshot,
+            ArchiveType = ArchiveType.Full,
             ChainId = "chain-001",
             SourceId = "source-001",
             CreatedUtc = new DateTimeOffset(2026, 8, 30, 12, 0, 0, TimeSpan.Zero),

@@ -68,7 +68,6 @@ public sealed class SourceScanner : ISourceScanner
             cancellationToken.ThrowIfCancellationRequested();
             if (IsExcludedPath(filePath, root))
             {
-                System.Diagnostics.Debug.WriteLine("SourceScanner: \tis excluded");
                 continue;
             }
 
@@ -261,10 +260,16 @@ public sealed class SourceScanner : ISourceScanner
                 ? TryReadFileResult.Success 
                 : TryReadFileResult.Unreadable;
         }
+        catch (IOException ex) when (ex.HResult == unchecked((int)0x80070020))
+        {
+            // ERROR_SHARING_VIOLATION — file is locked by another process
+            fileInfo = new FileInfo(path);
+            return TryReadFileResult.Locked;
+        }
         catch (IOException)
         {
             fileInfo = new FileInfo(path);
-            return TryReadFileResult.Locked;
+            return TryReadFileResult.Unreadable;
         }
         catch (UnauthorizedAccessException)
         {

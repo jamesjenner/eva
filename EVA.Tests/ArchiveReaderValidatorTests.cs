@@ -291,7 +291,7 @@ public sealed class ArchiveReaderValidatorTests : IDisposable
         {
             FormatVersion = 1,
             ArchiveId = id,
-            ArchiveType = ArchiveType.Snapshot,
+            ArchiveType = ArchiveType.Full,
             ChainId = chainId ?? "chain-001",
             ParentArchiveId = parentArchiveId,
             SourceId = "source-001",

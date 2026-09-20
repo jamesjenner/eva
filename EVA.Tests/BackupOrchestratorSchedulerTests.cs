@@ -153,7 +153,7 @@ public sealed class BackupOrchestratorTests : IDisposable
         var result = await orchestrator.RunOnceAsync(new DateTimeOffset(2026, 8, 30, 12, 0, 0, TimeSpan.Zero), false, CancellationToken.None);
 
         Assert.True(result.CreatedArchive);
-        Assert.Equal(ArchiveType.Snapshot, result.ArchiveType);
+        Assert.Equal(ArchiveType.Full, result.ArchiveType);
     }
 
     [Fact]
@@ -169,7 +169,7 @@ public sealed class BackupOrchestratorTests : IDisposable
         var result = await orchestrator.RunOnceAsync(DateTimeOffset.UtcNow, manualSnapshot: true, CancellationToken.None);
 
         Assert.True(result.CreatedArchive);
-        Assert.Equal(ArchiveType.Snapshot, result.ArchiveType);
+        Assert.Equal(ArchiveType.Full, result.ArchiveType);
     }
 
     [Fact]

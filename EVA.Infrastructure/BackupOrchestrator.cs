@@ -34,6 +34,7 @@ public sealed class BackupOrchestrator
     private readonly string _sourceId;
     private string _currentChainId = Guid.NewGuid().ToString("N");
     private DateTimeOffset? _lastSuccessfulBackupUtc;
+    private DateTimeOffset? _lastSnapshotUtc;
 
     public BackupOrchestrator(
         string sourceDirectory,
@@ -129,11 +130,19 @@ public sealed class BackupOrchestrator
             };
         }
 
+        var snapshotAvailability = ScanSnapshotAvailability(checkTime);
         var archiveType = _scheduler.DetermineArchiveType(
             checkTime,
             hasChanges: changesExist,
             manualSnapshotRequested: manualSnapshot,
-            lastSnapshotUtc: null);
+            lastSnapshotUtc: _lastSnapshotUtc,
+            weeklySnapshotExistsForCurrentWeek: snapshotAvailability.Weekly,
+            monthlySnapshotExistsForCurrentMonth: snapshotAvailability.Monthly);
+
+        if (manualSnapshot)
+        {
+            archiveType = ArchiveType.Full;
+        }
 
         if (!manualSnapshot && archiveType == ArchiveType.Incremental && !changesExist)
         {
@@ -153,7 +162,7 @@ public sealed class BackupOrchestrator
         }
 
         var manifest = CreateManifest(checkTime, archiveType, _currentChainId, manualSnapshot);
-        List<FileEntry> fileEntries = archiveType == ArchiveType.Snapshot
+        List<FileEntry> fileEntries = archiveType == ArchiveType.Full
             ? scanResult.StableFiles.Concat(scanResult.ConfirmedChanges).ToList()
             : scanResult.ConfirmedChanges.ToList();
         var directoryEntries = scanResult.EmptyDirectories.ToList();
@@ -165,6 +174,11 @@ public sealed class BackupOrchestrator
             if (!await _reader.ValidateArchiveAsync(archivePath, _password, cancellationToken).ConfigureAwait(false))
             {
                 throw new InvalidOperationException("Archive verification failed after write.");
+            }
+
+            if (archiveType == ArchiveType.Full)
+            {
+                _lastSnapshotUtc = checkTime;
             }
 
             if (!string.IsNullOrWhiteSpace(_secondaryArchiveDirectory))
@@ -246,6 +260,7 @@ public sealed class BackupOrchestrator
             FormatVersion = 1,
             ArchiveId = archiveId,
             ArchiveType = archiveType,
+            IsManual = manualSnapshot,
             ChainId = chainId,
             SourceId = _sourceId,
             CreatedUtc = normalizedCheckTime,
@@ -260,8 +275,47 @@ public sealed class BackupOrchestrator
     {
         var stamp = NormalizeUtcTimestamp(checkTime).ToUniversalTime().ToString("yyyy_MM_dd_HHmmss", CultureInfo.InvariantCulture);
         var sequence = DateTime.UtcNow.Ticks % 100;
-        var fileName = $"{stamp}_{sequence:00}.eva";
+        var typeName = archiveType == ArchiveType.Full ? "full" : "incremental";
+        var fileName = $"{stamp}_{typeName}_{sequence:00}.eva";
         return Path.Combine(_primaryArchiveDirectory, fileName);
+    }
+
+    private (bool Weekly, bool Monthly) ScanSnapshotAvailability(DateTimeOffset checkTime)
+    {
+        var weekly = false;
+        var monthly = false;
+
+        foreach (var archivePath in Directory.EnumerateFiles(_primaryArchiveDirectory, "*.eva", SearchOption.TopDirectoryOnly))
+        {
+            var fileName = Path.GetFileNameWithoutExtension(archivePath);
+            if (!fileName.Contains("_full_", StringComparison.OrdinalIgnoreCase) ||
+                fileName.Length != 29 || fileName[17] != '_' || !char.IsDigit(fileName[27]) || !char.IsDigit(fileName[28]) ||
+                !DateTimeOffset.TryParseExact(
+                    fileName.AsSpan(0, 17),
+                    "yyyy_MM_dd_HHmmss",
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+                    out var archiveTime))
+            {
+                continue;
+            }
+
+            weekly |= IsSameCalendarWeek(checkTime, archiveTime);
+            monthly |= checkTime.Year == archiveTime.Year && checkTime.Month == archiveTime.Month;
+            if (weekly && monthly)
+            {
+                break;
+            }
+        }
+
+        return (weekly, monthly);
+    }
+
+    private static bool IsSameCalendarWeek(DateTimeOffset first, DateTimeOffset second)
+    {
+        var firstWeek = CultureInfo.InvariantCulture.Calendar.GetWeekOfYear(first.DateTime, CalendarWeekRule.FirstDay, DayOfWeek.Monday);
+        var secondWeek = CultureInfo.InvariantCulture.Calendar.GetWeekOfYear(second.DateTime, CalendarWeekRule.FirstDay, DayOfWeek.Monday);
+        return first.Year == second.Year && firstWeek == secondWeek;
     }
 
     private static DateTimeOffset NormalizeUtcTimestamp(DateTimeOffset value)

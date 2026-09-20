@@ -127,12 +127,13 @@ Archive files use the `.eva` extension.
 
 The filename format is:
 ```text
-YYYY_MM_DD_HHMMSS_##.eva
+YYYY_MM_DD_HHMMSS_full_##.eva
+YYYY_MM_DD_HHMMSS_incremental_##.eva
 ```
 
 Example:
 ```text
-2026_08_29_1430_01.eva
+2026_08_29_143000_full_01.eva
 ```
 
 Where:

@@ -90,7 +90,21 @@ public partial class ListSnapshotWindow : SukiWindow
             try
             {
                 var header = await Task.Run(() => _archiveReader.ReadHeaderAsync(path));
-                return new ArchiveListItem(path, header, new FileInfo(path).Length);
+                var password = App.PasswordStore.GetPassword();
+                var isManual = false;
+                if (password is not null)
+                {
+                    try
+                    {
+                        var manifest = await _archiveReader.ReadManifestAsync(path, password);
+                        isManual = manifest.IsManual;
+                    }
+                    catch
+                    {
+                    }
+                }
+
+                return new ArchiveListItem(path, header, new FileInfo(path).Length, isManual);
             }
             catch
             {
@@ -212,10 +226,20 @@ public partial class ListSnapshotWindow : SukiWindow
     {
         var parent = string.IsNullOrWhiteSpace(manifest.ParentArchiveId) ? "None" : manifest.ParentArchiveId;
         return $"Archive ID: {manifest.ArchiveId}{Environment.NewLine}" +
-               $"Archive type: {manifest.ArchiveType}{Environment.NewLine}" +
+               $"Archive type: {FormatArchiveType(manifest.ArchiveType, manifest.IsManual)}{Environment.NewLine}" +
                $"Created: {manifest.CreatedUtc.ToLocalTime():dd MMM yyyy HH:mm}{Environment.NewLine}" +
                $"Chain ID: {manifest.ChainId}{Environment.NewLine}" +
                $"Parent archive ID: {parent}";
+    }
+
+    private static string FormatArchiveType(ArchiveType archiveType, bool isManual = false)
+    {
+        if (isManual)
+        {
+            return "Manual Backup";
+        }
+
+        return archiveType == ArchiveType.Full ? "Full Backup" : "Incremental Backup";
     }
 
     private sealed record ArchiveScanResult(
@@ -225,11 +249,11 @@ public partial class ListSnapshotWindow : SukiWindow
 
     private sealed class ArchiveListItem
     {
-        public ArchiveListItem(string path, ArchiveHeader header, long size)
+        public ArchiveListItem(string path, ArchiveHeader header, long size, bool isManual)
         {
             Path = path;
             FileName = System.IO.Path.GetFileName(path);
-            TypeLabel = header.ArchiveType.ToString();
+            TypeLabel = FormatArchiveType(header.ArchiveType, isManual);
             CreatedUtc = header.CreatedUtc;
             DetailsLabel = $"{FormatSize(size)} | {header.CreatedUtc.ToLocalTime():dd MMM yyyy HH:mm}";
         }

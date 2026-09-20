@@ -139,7 +139,7 @@ public sealed class SourceScannerTests : IDisposable
     }
     
     [Fact]
-    public async Task UnreadableFileIsReportedAsErrorAndNotMarkedAsSuccessfullyScanned()
+    public async Task UnstableFileIsReportedAsErrorAndNotMarkedAsSuccessfullyScanned()
     {
         var root = CreateTempDirectory();
         var filePath = Path.Combine(root, "locked.txt");
@@ -151,8 +151,8 @@ public sealed class SourceScannerTests : IDisposable
         var result = await scanner.ScanAsync(root, CancellationToken.None);
 
         Assert.Empty(result.ConfirmedChanges);
-        Assert.Single(result.UnreadableFiles);
-        Assert.Equal("locked.txt", result.UnreadableFiles[0]);
+        Assert.Single(result.UnstableFiles);
+        Assert.Equal("locked.txt", result.UnstableFiles[0].RelativePath);
     }
 
     [Fact]

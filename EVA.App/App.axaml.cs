@@ -178,15 +178,15 @@ public partial class App : Application
 
         menu.Add(new NativeMenuItemSeparator());
 
-        var snapshotItem = new NativeMenuItem { Header = "Create snapshot now" };
+        var snapshotItem = new NativeMenuItem { Header = "Create full backup now" };
         snapshotItem.Click += (_, _) => _ = CreateSnapshotNowAsync();
         menu.Add(snapshotItem);
 
-        var listItem = new NativeMenuItem { Header = "List snapshot content" };
+        var listItem = new NativeMenuItem { Header = "List full backup contents" };
         listItem.Click += (_, _) => ShowListSnapshots();
         menu.Add(listItem);
 
-        var restoreItem = new NativeMenuItem { Header = "Restore snapshot" };
+        var restoreItem = new NativeMenuItem { Header = "Restore full backup" };
         restoreItem.Click += (_, _) => ShowRestoreSnapshot();
         menu.Add(restoreItem);
 
@@ -230,7 +230,7 @@ public partial class App : Application
     {
         if (Orchestrator is null)
         {
-            System.Diagnostics.Debug.WriteLine("Cannot create snapshot: orchestrator not running.");
+            System.Diagnostics.Debug.WriteLine("Cannot create full backup: orchestrator not running.");
             return;
         }
 
@@ -242,7 +242,7 @@ public partial class App : Application
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Manual snapshot failed: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"Manual full backup failed: {ex.Message}");
         }
     }
 
