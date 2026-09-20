@@ -211,6 +211,16 @@ public partial class ListSnapshotWindow : SukiWindow
         }
     }
 
+    private void RestoreArchive_Click(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: ArchiveListItem archive })
+        {
+            return;
+        }
+
+        App.ShowRestoreSnapshot(archive.Path);
+    }
+
     private void ShowManifestError(string message)
     {
         ManifestErrorText.Text = message;

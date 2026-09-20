@@ -33,6 +33,7 @@ public sealed class BackupOrchestrator
     private readonly IRetentionEvaluator? _retentionEvaluator;
     private readonly string _sourceId;
     private string _currentChainId = Guid.NewGuid().ToString("N");
+    private string? _lastArchiveId;
     private DateTimeOffset? _lastSuccessfulBackupUtc;
     private DateTimeOffset? _lastSnapshotUtc;
 
@@ -93,6 +94,7 @@ public sealed class BackupOrchestrator
         _sourceId = sourceId ?? Guid.NewGuid().ToString("N");
 
         Directory.CreateDirectory(_primaryArchiveDirectory);
+        RecoverLatestArchiveState();
         if (!string.IsNullOrWhiteSpace(_secondaryArchiveDirectory))
         {
             try
@@ -156,7 +158,7 @@ public sealed class BackupOrchestrator
             };
         }
 
-        if (manualSnapshot)
+        if (archiveType == ArchiveType.Full)
         {
             _currentChainId = Guid.NewGuid().ToString("N");
         }
@@ -180,6 +182,7 @@ public sealed class BackupOrchestrator
             {
                 _lastSnapshotUtc = checkTime;
             }
+            _lastArchiveId = manifest.ArchiveId;
 
             if (!string.IsNullOrWhiteSpace(_secondaryArchiveDirectory))
             {
@@ -267,8 +270,47 @@ public sealed class BackupOrchestrator
             Files = new List<FileEntry>(),
             Directories = new List<DirectoryEntry>(),
             Deleted = new List<DeletedEntry>(),
-            ParentArchiveId = manualSnapshot ? null : null
+            ParentArchiveId = archiveType == ArchiveType.Incremental ? _lastArchiveId : null
         };
+    }
+
+    private void RecoverLatestArchiveState()
+    {
+        var latestArchive = Directory.EnumerateFiles(_primaryArchiveDirectory, "*.eva", SearchOption.TopDirectoryOnly)
+            .Select(path => new { Path = path, Timestamp = GetArchiveTimestamp(path) })
+            .Where(item => item.Timestamp is not null)
+            .OrderByDescending(item => item.Timestamp)
+            .FirstOrDefault();
+
+        if (latestArchive is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var header = _reader.ReadHeaderAsync(latestArchive.Path).GetAwaiter().GetResult();
+            _lastArchiveId = header.ArchiveId;
+            _currentChainId = header.ChainId;
+        }
+        catch
+        {
+            // Ignore an unreadable latest archive and allow the next run to report its normal write error.
+        }
+    }
+
+    private static DateTimeOffset? GetArchiveTimestamp(string archivePath)
+    {
+        var fileName = Path.GetFileNameWithoutExtension(archivePath);
+        return fileName.Length >= 17 &&
+               DateTimeOffset.TryParseExact(
+                   fileName.AsSpan(0, 17),
+                   "yyyy_MM_dd_HHmmss",
+                   CultureInfo.InvariantCulture,
+                   DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+                   out var timestamp)
+            ? timestamp
+            : null;
     }
 
     private string CreateArchivePath(DateTimeOffset checkTime, ArchiveType archiveType)
@@ -289,7 +331,7 @@ public sealed class BackupOrchestrator
         {
             var fileName = Path.GetFileNameWithoutExtension(archivePath);
             if (!fileName.Contains("_full_", StringComparison.OrdinalIgnoreCase) ||
-                fileName.Length != 29 || fileName[17] != '_' || !char.IsDigit(fileName[27]) || !char.IsDigit(fileName[28]) ||
+                fileName.Length < 25 || !char.IsDigit(fileName[^2]) || !char.IsDigit(fileName[^1]) ||
                 !DateTimeOffset.TryParseExact(
                     fileName.AsSpan(0, 17),
                     "yyyy_MM_dd_HHmmss",

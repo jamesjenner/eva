@@ -1,0 +1,62 @@
+<suki:SukiWindow
+        xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:suki="clr-namespace:SukiUI.Controls;assembly=SukiUI"
+        x:Class="EVA.App.RestoreWindow"
+        Title="Restore backup"
+        Width="700"
+        Height="620"
+        MinWidth="560"
+        MinHeight="480"
+        WindowStartupLocation="CenterOwner">
+    <suki:SukiWindow.Hosts>
+        <suki:SukiDialogHost Name="DialogHost" />
+    </suki:SukiWindow.Hosts>
+    <Grid Margin="20" RowDefinitions="Auto,Auto,Auto,Auto,*,Auto" RowSpacing="14">
+        <TextBlock Grid.Row="0" Text="Restore backup" Classes="h2" />
+        <Border Grid.Row="1" Classes="card" Padding="12">
+            <StackPanel Spacing="6">
+                <TextBlock Text="Selected archive" FontWeight="SemiBold" />
+                <TextBlock x:Name="ArchivePathText" TextWrapping="Wrap" Opacity="0.8" />
+            </StackPanel>
+        </Border>
+
+        <Border Grid.Row="2" Classes="card" Padding="12">
+            <StackPanel Spacing="10">
+                <TextBlock Text="Restore destination" FontWeight="SemiBold" />
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                    <TextBox x:Name="AlternativeDirectoryText"
+                             IsEnabled="True"
+                             PlaceholderText="Choose a restore directory" />
+                    <Button Grid.Column="1"
+                            x:Name="BrowseButton"
+                            IsEnabled="True"
+                            Click="Browse_Click"
+                            Content="Browse" />
+                </Grid>
+                <TextBlock Text="The alternative directory will be created automatically. Existing files require confirmation before overwrite."
+                           TextWrapping="Wrap"
+                           Opacity="0.72" />
+            </StackPanel>
+        </Border>
+
+        <ProgressBar x:Name="RestoreProgress"
+                     Grid.Row="3"
+                     Height="6"
+                     IsVisible="False"
+                     IsIndeterminate="True" />
+
+        <Border Grid.Row="4" Classes="card" Padding="12">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <TextBlock x:Name="ResultSummaryText"
+                           Text="Choose a destination and select Restore."
+                           TextWrapping="Wrap" />
+            </ScrollViewer>
+        </Border>
+
+        <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+            <Button Content="Cancel" Click="Cancel_Click" IsCancel="True" />
+            <Button x:Name="RestoreButton" Content="Restore" Click="Restore_Click" IsDefault="True" />
+        </StackPanel>
+    </Grid>
+</suki:SukiWindow>

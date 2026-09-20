@@ -254,7 +254,20 @@ public partial class App : Application
 
     private static void ShowRestoreSnapshot()
     {
-        // TODO: implement RestoreSnapshotWindow
+        ShowListSnapshots();
+    }
+
+    internal static void ShowRestoreSnapshot(string archivePath)
+    {
+        var password = PasswordStore.GetPassword();
+        if (string.IsNullOrWhiteSpace(password))
+        {
+            System.Diagnostics.Debug.WriteLine("Cannot restore archive: no password is stored.");
+            return;
+        }
+
+        var window = new RestoreWindow(archivePath, password);
+        window.Show();
     }
 
     private static Task HandleBackupResultAsync(BackupRunResult result, TimeSpan interval)

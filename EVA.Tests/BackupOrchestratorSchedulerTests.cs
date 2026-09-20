@@ -234,6 +234,57 @@ public sealed class BackupOrchestratorTests : IDisposable
         Assert.Single(snapshot.Files);
     }
 
+    [Fact]
+    public async Task IncrementalArchivePointsToPreviousArchiveAndKeepsChainId()
+    {
+        var root = CreateTempDirectory();
+        var destination = Path.Combine(root, "archives");
+        Directory.CreateDirectory(destination);
+        var stateDirectory = CreateTempDirectory();
+        var index = new LocalScanStateIndex(root, stateDirectory);
+        await File.WriteAllTextAsync(Path.Combine(root, "a.txt"), "alpha");
+
+        var orchestrator = new BackupOrchestrator(root, destination, null, "Password123!", stateIndex: index);
+        var fullResult = await orchestrator.RunOnceAsync(new DateTimeOffset(2026, 8, 30, 12, 0, 0, TimeSpan.Zero), false, CancellationToken.None);
+
+        Assert.Equal(ArchiveType.Full, fullResult.ArchiveType);
+        Assert.True(fullResult.Success);
+        await File.WriteAllTextAsync(Path.Combine(root, "a.txt"), "updated");
+        var incrementalResult = await orchestrator.RunOnceAsync(new DateTimeOffset(2026, 8, 30, 13, 0, 0, TimeSpan.Zero), false, CancellationToken.None);
+
+        var reader = new ArchiveReader();
+        var fullManifest = await reader.ReadManifestAsync(fullResult.ArchivePath!, "Password123!");
+        var incrementalManifest = await reader.ReadManifestAsync(incrementalResult.ArchivePath!, "Password123!");
+
+        Assert.Equal(ArchiveType.Full, fullManifest.ArchiveType);
+        Assert.Equal(ArchiveType.Incremental, incrementalManifest.ArchiveType);
+        Assert.Equal(fullManifest.ArchiveId, incrementalManifest.ParentArchiveId);
+        Assert.Equal(fullManifest.ChainId, incrementalManifest.ChainId);
+    }
+
+    [Fact]
+    public async Task RestartRecoversLastArchiveAndChainForNextIncrementalArchive()
+    {
+        var root = CreateTempDirectory();
+        var destination = Path.Combine(root, "archives");
+        Directory.CreateDirectory(destination);
+        var stateDirectory = CreateTempDirectory();
+        await File.WriteAllTextAsync(Path.Combine(root, "a.txt"), "alpha");
+
+        var firstOrchestrator = new BackupOrchestrator(root, destination, null, "Password123!", stateIndex: new LocalScanStateIndex(root, stateDirectory));
+        var fullResult = await firstOrchestrator.RunOnceAsync(new DateTimeOffset(2026, 8, 30, 12, 0, 0, TimeSpan.Zero), false, CancellationToken.None);
+        var reader = new ArchiveReader();
+        var fullManifest = await reader.ReadManifestAsync(fullResult.ArchivePath!, "Password123!");
+
+        await File.WriteAllTextAsync(Path.Combine(root, "a.txt"), "updated after restart");
+        var restartedOrchestrator = new BackupOrchestrator(root, destination, null, "Password123!", stateIndex: new LocalScanStateIndex(root, stateDirectory));
+        var incrementalResult = await restartedOrchestrator.RunOnceAsync(new DateTimeOffset(2026, 8, 30, 13, 0, 0, TimeSpan.Zero), false, CancellationToken.None);
+        var incrementalManifest = await reader.ReadManifestAsync(incrementalResult.ArchivePath!, "Password123!");
+
+        Assert.Equal(fullManifest.ArchiveId, incrementalManifest.ParentArchiveId);
+        Assert.Equal(fullManifest.ChainId, incrementalManifest.ChainId);
+    }
+
     private string CreateTempDirectory()
     {
         var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
