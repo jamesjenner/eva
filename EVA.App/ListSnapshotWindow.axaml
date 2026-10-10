@@ -1,136 +1,163 @@
-<suki:SukiWindow
-        xmlns="https://github.com/avaloniaui"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:suki="clr-namespace:SukiUI.Controls;assembly=SukiUI"
-        x:Class="EVA.App.ListSnapshotWindow"
-        x:CompileBindings="False"
-        Title="Full backup contents"
-        Width="1100"
-        Height="760"
-        MinWidth="760"
-        MinHeight="520"
-        WindowStartupLocation="CenterScreen">
-    <Grid Margin="12" RowDefinitions="Auto,Auto,*,Auto" RowSpacing="10">
-        <ProgressBar x:Name="LoadingIndicator"
-                     Grid.Row="0"
-                     Height="4"
-                     IsVisible="False"
-                     IsIndeterminate="True" />
-
-        <TextBlock x:Name="ScanStatusText"
-                   Grid.Row="1"
-                   TextWrapping="Wrap"
-                   Opacity="0.8" />
-
-        <Grid Grid.Row="2" RowDefinitions="Auto,*" ColumnDefinitions="*,4,*" ColumnSpacing="8">
-            <StackPanel Grid.Row="0" Grid.Column="0" Spacing="2">
-                <TextBlock FontWeight="SemiBold" Text="Primary destination" />
-                <TextBlock x:Name="PrimaryPathText" TextWrapping="Wrap" Opacity="0.75" />
-            </StackPanel>
-            <StackPanel Grid.Row="0" Grid.Column="2" Spacing="2">
-                <TextBlock FontWeight="SemiBold" Text="Secondary destination" />
-                <TextBlock x:Name="SecondaryPathText" TextWrapping="Wrap" Opacity="0.75" />
-            </StackPanel>
-
-            <ScrollViewer x:Name="PrimaryScrollViewer"
-                          Grid.Row="1"
-                          Grid.Column="0"
-                          VerticalScrollBarVisibility="Auto"
-                          HorizontalScrollBarVisibility="Disabled"
-                          ScrollChanged="PrimaryScrollViewer_ScrollChanged">
-                <StackPanel Spacing="6">
-                    <TextBlock x:Name="PrimaryMessageText"
-                               TextWrapping="Wrap"
-                               Opacity="0.75" />
-                    <ItemsControl x:Name="PrimaryArchivesList">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <Border Padding="8" BorderBrush="{DynamicResource ThemeBorderLowBrush}" BorderThickness="1" CornerRadius="4">
-                                    <Grid ColumnDefinitions="*,Auto,Auto" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="8" RowSpacing="2">
-                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="{Binding FileName}" TextTrimming="CharacterEllipsis" FontWeight="SemiBold" />
-                                        <Button Grid.Row="0" Grid.Column="1" Grid.RowSpan="3" Padding="10,4" Tag="{Binding}" Click="RestoreArchive_Click" ToolTip.Tip="Restore this archive" Content="Restore" />
-                                        <Button Grid.Row="0" Grid.Column="2" Grid.RowSpan="3" Width="32" Height="32" Padding="0" Tag="{Binding}" Click="OpenManifest_Click" ToolTip.Tip="View manifest">
-                                            <TextBlock Text=">" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center" />
-                                        </Button>
-                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="{Binding TypeLabel}" Opacity="0.8" />
-                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="{Binding DetailsLabel}" Opacity="0.8" TextWrapping="Wrap" />
-                                    </Grid>
-                                </Border>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                </StackPanel>
-            </ScrollViewer>
-
-            <GridSplitter Grid.Row="1" Grid.Column="1" Width="4" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" ResizeDirection="Columns" />
-
-            <ScrollViewer x:Name="SecondaryScrollViewer"
-                          Grid.Row="1"
-                          Grid.Column="2"
-                          VerticalScrollBarVisibility="Auto"
-                          HorizontalScrollBarVisibility="Disabled"
-                          ScrollChanged="SecondaryScrollViewer_ScrollChanged">
-                <StackPanel Spacing="6">
-                    <TextBlock x:Name="SecondaryMessageText"
-                               TextWrapping="Wrap"
-                               Opacity="0.75" />
-                    <ItemsControl x:Name="SecondaryArchivesList">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <Border Padding="8" BorderBrush="{DynamicResource ThemeBorderLowBrush}" BorderThickness="1" CornerRadius="4">
-                                    <Grid ColumnDefinitions="*,Auto,Auto" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="8" RowSpacing="2">
-                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="{Binding FileName}" TextTrimming="CharacterEllipsis" FontWeight="SemiBold" />
-                                        <Button Grid.Row="0" Grid.Column="1" Grid.RowSpan="3" Padding="10,4" Tag="{Binding}" Click="RestoreArchive_Click" ToolTip.Tip="Restore this archive" Content="Restore" />
-                                        <Button Grid.Row="0" Grid.Column="2" Grid.RowSpan="3" Width="32" Height="32" Padding="0" Tag="{Binding}" Click="OpenManifest_Click" ToolTip.Tip="View manifest">
-                                            <TextBlock Text=">" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center" />
-                                        </Button>
-                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="{Binding TypeLabel}" Opacity="0.8" />
-                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="{Binding DetailsLabel}" Opacity="0.8" TextWrapping="Wrap" />
-                                    </Grid>
-                                </Border>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                </StackPanel>
-            </ScrollViewer>
+<suki:SukiWindow xmlns="https://github.com/avaloniaui"
+                 xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                 xmlns:suki="clr-namespace:SukiUI.Controls;assembly=SukiUI"
+                 xmlns:app="using:EVA.App"
+                 x:Class="EVA.App.ListSnapshotWindow"
+                 x:CompileBindings="False"
+                 Title="Archive snapshots"
+                 Width="1160"
+                 Height="760"
+                 MinWidth="960"
+                 MinHeight="560"
+                 WindowStartupLocation="CenterScreen">
+    <suki:SukiWindow.Styles>
+        <Style Selector="TextBlock.deletedArchiveNode">
+            <Setter Property="Opacity" Value="0.55" />
+            <Setter Property="TextDecorations" Value="Strikethrough" />
+        </Style>
+        <Style Selector="TextBlock.fullArchive">
+            <Setter Property="FontWeight" Value="Bold" />
+        </Style>
+    </suki:SukiWindow.Styles>
+    <Grid Margin="12" RowDefinitions="Auto,*,Auto" RowSpacing="8">
+        <Grid Grid.Row="0" ColumnDefinitions="*,Auto" ColumnSpacing="8">
+            <ComboBox x:Name="LocationSelector"
+                      HorizontalAlignment="Stretch"
+                      Margin="-6,0,-6,0"
+                      SelectionChanged="LocationSelector_SelectionChanged">
+                <ComboBox.ItemTemplate>
+                    <DataTemplate>
+                        <TextBlock Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis" />
+                    </DataTemplate>
+                </ComboBox.ItemTemplate>
+            </ComboBox>
+            <Button Grid.Column="1"
+                    Content="..."
+                    MinWidth="42"
+                    ToolTip.Tip="Choose an archive folder"
+                    Click="BrowseLocation_Click" />
         </Grid>
 
-        <Border x:Name="ManifestPanel"
-                Grid.Row="3"
-                Padding="10"
-                BorderBrush="{DynamicResource ThemeBorderLowBrush}"
-                BorderThickness="1"
-                CornerRadius="4"
-                IsVisible="False">
-            <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="6">
-                <Grid ColumnDefinitions="*,Auto">
-                    <TextBlock Text="Manifest" FontWeight="SemiBold" />
-                    <Button Grid.Column="1" Content="Close" Padding="10,4" Click="CloseManifest_Click" />
+        <Grid Grid.Row="1"
+              ColumnDefinitions="1.1*,4,1.7*,4,2.3*"
+              ColumnSpacing="8">
+            <Border Grid.Column="0" Classes="card" MinWidth="190" Padding="10">
+                <Grid RowDefinitions="Auto,Auto,*" RowSpacing="8">
+                    <TextBlock Text="Archives" FontWeight="SemiBold" />
+                    <ProgressBar x:Name="ScanLoadingIndicator"
+                                 Grid.Row="1"
+                                 Height="4"
+                                 IsVisible="False"
+                                 IsIndeterminate="True" />
+                    <ListBox x:Name="ArchiveList"
+                             Grid.Row="2"
+                             SelectionChanged="ArchiveList_SelectionChanged">
+                        <ListBox.Styles>
+                            <Style Selector="ListBoxItem">
+                                <Setter Property="IsEnabled" Value="{Binding IsSelectable}" />
+                                <Setter Property="Focusable" Value="{Binding IsSelectable}" />
+                            </Style>
+                        </ListBox.Styles>
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="app:ArchiveListRowViewModel">
+                                <Grid>
+                                    <TextBlock Text="{Binding Heading}"
+                                               IsVisible="{Binding IsHeader}"
+                                               FontWeight="SemiBold"
+                                               Foreground="{DynamicResource SukiPrimaryColor}"
+                                               Margin="0,8,0,4" />
+                                    <Border Classes="card"
+                                            Padding="8"
+                                            Margin="0,0,0,6"
+                                            IsVisible="{Binding IsArchive}">
+                                        <StackPanel Spacing="3">
+                                            <TextBlock Text="{Binding TimestampLabel}" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="{Binding TypeLabel}"
+                                                       Classes.fullArchive="{Binding IsFull}"
+                                                       Opacity="0.85" />
+                                        </StackPanel>
+                                    </Border>
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
                 </Grid>
-                <TextBlock x:Name="ManifestErrorText" Grid.Row="1" TextWrapping="Wrap" Foreground="{DynamicResource EVAErrorBrush}" IsVisible="False" />
-                <TextBlock x:Name="ManifestMetadataText" Grid.Row="2" TextWrapping="Wrap" />
-                <TextBlock x:Name="ManifestLoadingText" Grid.Row="3" Text="Loading manifest..." IsVisible="False" />
-                <ScrollViewer Grid.Row="4" MaxHeight="220" VerticalScrollBarVisibility="Auto">
-                    <StackPanel Spacing="8">
-                        <TextBlock Text="Files" FontWeight="SemiBold" />
-                        <ItemsControl x:Name="ManifestFilesList">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                    <TextBlock Text="{Binding DetailsLabel}" TextWrapping="Wrap" />
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-                        <TextBlock Text="Directories" FontWeight="SemiBold" />
-                        <ItemsControl x:Name="ManifestDirectoriesList">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                    <TextBlock Text="{Binding DetailsLabel}" TextWrapping="Wrap" />
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-                    </StackPanel>
-                </ScrollViewer>
-            </Grid>
-        </Border>
+            </Border>
+
+            <GridSplitter Grid.Column="1"
+                          Width="4"
+                          Background="{DynamicResource SukiPrimaryColor}"
+                          Opacity="0.55"
+                          HorizontalAlignment="Stretch"
+                          VerticalAlignment="Stretch"
+                          ResizeDirection="Columns" />
+
+            <Border Grid.Column="2" Classes="card" MinWidth="260" Padding="10">
+                <Grid RowDefinitions="Auto,Auto,*" RowSpacing="8">
+                    <TextBlock Text="Archive contents" FontWeight="SemiBold" />
+                    <ProgressBar x:Name="ContentsLoadingIndicator"
+                                 Grid.Row="1"
+                                 Height="4"
+                                 IsVisible="False"
+                                 IsIndeterminate="True" />
+                    <Grid Grid.Row="2">
+                        <TextBlock x:Name="ContentsStatusText"
+                                   Text="Select an archive"
+                                   TextWrapping="Wrap"
+                                   Opacity="0.75" />
+                        <TreeView x:Name="ArchiveContentsTree"
+                                  IsVisible="False"
+                                  SelectionChanged="ArchiveContentsTree_SelectionChanged">
+                            <TreeView.ItemTemplate>
+                                <TreeDataTemplate ItemsSource="{Binding Children}">
+                                    <TextBlock Text="{Binding Name}"
+                                               Classes.deletedArchiveNode="{Binding IsDeleted}"
+                                               TextTrimming="CharacterEllipsis" />
+                                </TreeDataTemplate>
+                            </TreeView.ItemTemplate>
+                        </TreeView>
+                    </Grid>
+                </Grid>
+            </Border>
+
+            <GridSplitter Grid.Column="3"
+                          Width="4"
+                          Background="{DynamicResource SukiPrimaryColor}"
+                          Opacity="0.55"
+                          HorizontalAlignment="Stretch"
+                          VerticalAlignment="Stretch"
+                          ResizeDirection="Columns" />
+
+            <Border Grid.Column="4" Classes="card" MinWidth="320" Padding="10">
+                <Grid RowDefinitions="Auto,Auto,*" RowSpacing="8">
+                    <TextBlock Text="Preview" FontWeight="SemiBold" />
+                    <TextBlock x:Name="PreviewTruncatedNotice"
+                               Grid.Row="1"
+                               Text="Preview truncated to the first 256 KB."
+                               IsVisible="False"
+                               Foreground="{DynamicResource EVAWarningBrush}"
+                               TextWrapping="Wrap" />
+                    <Grid Grid.Row="2">
+                        <TextBlock x:Name="PreviewStatusText"
+                                   Text="Select a file to preview"
+                                   TextWrapping="Wrap"
+                                   Opacity="0.75" />
+                        <TextBox x:Name="PreviewTextBox"
+                                 IsReadOnly="True"
+                                 AcceptsReturn="True"
+                                 TextWrapping="NoWrap"
+                                 BorderThickness="0"
+                                 IsVisible="False"
+                                 HorizontalAlignment="Stretch"
+                                 VerticalAlignment="Stretch" />
+                    </Grid>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <TextBlock x:Name="ScanStatusText"
+                   Grid.Row="2"
+                   TextWrapping="Wrap"
+                   Opacity="0.8" />
     </Grid>
 </suki:SukiWindow>

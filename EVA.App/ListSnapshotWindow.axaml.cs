@@ -1,5 +1,8 @@
+using System.Collections.ObjectModel;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using Avalonia.Platform.Storage;
+using EVA.Core;
 using EVA.Core.Interfaces;
 using EVA.Core.Models;
 using EVA.Infrastructure;
@@ -10,311 +13,372 @@ namespace EVA.App;
 public partial class ListSnapshotWindow : SukiWindow
 {
     private readonly IArchiveReader _archiveReader = new ArchiveReader();
-    private bool _syncingScroll;
+    private readonly ObservableCollection<ArchiveLocationItem> _locations = [];
+    private readonly ObservableCollection<ArchiveListRowViewModel> _archiveRows = [];
+    private CancellationTokenSource? _scanCancellation;
+    private CancellationTokenSource? _contentsCancellation;
+    private CancellationTokenSource? _previewCancellation;
+    private bool _initializingLocations;
 
     public ListSnapshotWindow()
     {
         InitializeComponent();
+        LocationSelector.ItemsSource = _locations;
+        ArchiveList.ItemsSource = _archiveRows;
         Loaded += Window_Loaded;
+        Closed += (_, _) => CancelPendingLoads();
     }
 
     private async void Window_Loaded(object? sender, RoutedEventArgs e)
     {
         Loaded -= Window_Loaded;
-        await LoadArchivesAsync();
-    }
-
-    private async Task LoadArchivesAsync()
-    {
-        LoadingIndicator.IsVisible = true;
-        ScanStatusText.Text = "Scanning archive destinations...";
-        PrimaryArchivesList.ItemsSource = null;
-        SecondaryArchivesList.ItemsSource = null;
-        PrimaryMessageText.Text = string.Empty;
-        SecondaryMessageText.Text = string.Empty;
-
         try
         {
             var config = await App.ConfigStore.LoadAsync();
-            PrimaryPathText.Text = config.PrimaryDestination ?? string.Empty;
-            SecondaryPathText.Text = config.SecondaryDestinationEnabled && !string.IsNullOrWhiteSpace(config.SecondaryDestination)
-                ? config.SecondaryDestination
-                : "Secondary destination not configured";
+            _initializingLocations = true;
+            AddConfiguredLocation("Primary", config.PrimaryDestination);
+            if (config.SecondaryDestinationEnabled)
+            {
+                AddConfiguredLocation("Secondary", config.SecondaryDestination);
+            }
 
-            var primaryTask = ScanDestinationAsync(config.PrimaryDestination);
-            var secondaryTask = config.SecondaryDestinationEnabled
-                ? ScanDestinationAsync(config.SecondaryDestination)
-                : Task.FromResult(new ArchiveScanResult(config.SecondaryDestination, Array.Empty<ArchiveListItem>(),
-                    string.IsNullOrWhiteSpace(config.SecondaryDestination)
-                        ? $"Directory not found: {config.SecondaryDestination ?? string.Empty}"
-                        : $"Directory not found: {config.SecondaryDestination}"));
+            LocationSelector.SelectedIndex = _locations.Count > 0 ? 0 : -1;
+            _initializingLocations = false;
 
-            var results = await Task.WhenAll(primaryTask, secondaryTask);
-            ApplyScanResult(results[0], PrimaryArchivesList, PrimaryMessageText);
-            ApplyScanResult(results[1], SecondaryArchivesList, SecondaryMessageText);
-            ScanStatusText.Text = "Archive scan complete.";
-        }
-        catch (Exception ex)
-        {
-            ScanStatusText.Text = $"Archive scan failed: {ex.Message}";
-        }
-        finally
-        {
-            LoadingIndicator.IsVisible = false;
-        }
-    }
-
-    private async Task<ArchiveScanResult> ScanDestinationAsync(string? directory)
-    {
-        if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory))
-        {
-            return new ArchiveScanResult(directory, Array.Empty<ArchiveListItem>(),
-                $"Directory not found: {directory ?? string.Empty}");
-        }
-
-        var archiveItems = new List<ArchiveListItem>();
-        var headerErrors = new List<string>();
-        string[] archivePaths;
-        try
-        {
-            archivePaths = Directory.EnumerateFiles(directory, "*.eva", SearchOption.TopDirectoryOnly).ToArray();
+            if (LocationSelector.SelectedItem is ArchiveLocationItem location)
+            {
+                await LoadArchivesAsync(location);
+            }
+            else
+            {
+                ScanStatusText.Text = "No archive destination is configured.";
+            }
         }
         catch
         {
-            return new ArchiveScanResult(directory, Array.Empty<ArchiveListItem>(),
-                $"Directory not found: {directory}");
-        }
-
-        var headerTasks = archivePaths.Select(async path =>
-        {
-            try
-            {
-                var header = await Task.Run(() => _archiveReader.ReadHeaderAsync(path));
-                var password = App.PasswordStore.GetPassword();
-                var isManual = false;
-                if (password is not null)
-                {
-                    try
-                    {
-                        var manifest = await _archiveReader.ReadManifestAsync(path, password);
-                        isManual = manifest.IsManual;
-                    }
-                    catch
-                    {
-                    }
-                }
-
-                return new ArchiveListItem(path, header, new FileInfo(path).Length, isManual);
-            }
-            catch
-            {
-                lock (headerErrors)
-                {
-                    headerErrors.Add($"Archive header could not be read: {Path.GetFileName(path)}");
-                }
-                return null;
-            }
-        });
-
-        var scannedItems = await Task.WhenAll(headerTasks);
-        archiveItems.AddRange(scannedItems.Where(item => item is not null).Select(item => item!));
-        archiveItems.Sort((left, right) => left.CreatedUtc.CompareTo(right.CreatedUtc));
-
-        var message = headerErrors.Count > 0
-            ? string.Join(Environment.NewLine, headerErrors)
-            : archiveItems.Count == 0
-                ? $"No archives found in {directory}"
-                : string.Empty;
-        return new ArchiveScanResult(directory, archiveItems, message);
-    }
-
-    private static void ApplyScanResult(ArchiveScanResult result, ItemsControl list, TextBlock message)
-    {
-        list.ItemsSource = result.Items;
-        message.Text = result.Message;
-    }
-
-    private void PrimaryScrollViewer_ScrollChanged(object? sender, ScrollChangedEventArgs e)
-    {
-        if (sender is ScrollViewer source)
-        {
-            SyncScroll(SecondaryScrollViewer, source.Offset.Y);
+            _initializingLocations = false;
+            ScanStatusText.Text = "Archive destinations could not be loaded.";
         }
     }
 
-    private void SecondaryScrollViewer_ScrollChanged(object? sender, ScrollChangedEventArgs e)
+    private void AddConfiguredLocation(string label, string? path)
     {
-        if (sender is ScrollViewer source)
-        {
-            SyncScroll(PrimaryScrollViewer, source.Offset.Y);
-        }
-    }
-
-    private void SyncScroll(ScrollViewer target, double verticalOffset)
-    {
-        if (_syncingScroll || Math.Abs(target.Offset.Y - verticalOffset) < 0.5)
+        if (string.IsNullOrWhiteSpace(path) || _locations.Any(location =>
+                string.Equals(location.Directory, path, StringComparison.OrdinalIgnoreCase)))
         {
             return;
+        }
+
+        _locations.Add(new ArchiveLocationItem($"{label} - {path}", path));
+    }
+
+    private async void LocationSelector_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (!_initializingLocations && LocationSelector.SelectedItem is ArchiveLocationItem location)
+        {
+            await LoadArchivesAsync(location);
+        }
+    }
+
+    private async void BrowseLocation_Click(object? sender, RoutedEventArgs e)
+    {
+        var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        {
+            Title = "Choose an archive folder",
+            AllowMultiple = false,
+            SuggestedStartLocation = await TryGetFolderAsync((LocationSelector.SelectedItem as ArchiveLocationItem)?.Directory)
+        });
+
+        var path = folders.Count > 0 ? folders[0].TryGetLocalPath() : null;
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return;
+        }
+
+        var location = _locations.FirstOrDefault(item =>
+            string.Equals(item.Directory, path, StringComparison.OrdinalIgnoreCase));
+        if (location is null)
+        {
+            location = new ArchiveLocationItem($"Manual - {path}", path);
+            _locations.Add(location);
+        }
+
+        if (ReferenceEquals(LocationSelector.SelectedItem, location))
+        {
+            await LoadArchivesAsync(location);
+        }
+        else
+        {
+            LocationSelector.SelectedItem = location;
+        }
+    }
+
+    private async Task<IStorageFolder?> TryGetFolderAsync(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return null;
         }
 
         try
         {
-            _syncingScroll = true;
-            target.Offset = new Avalonia.Vector(target.Offset.X, verticalOffset);
+            return await StorageProvider.TryGetFolderFromPathAsync(path);
         }
-        finally
+        catch (ArgumentException)
         {
-            _syncingScroll = false;
+            return null;
         }
     }
 
-    private async void OpenManifest_Click(object? sender, RoutedEventArgs e)
+    private async Task LoadArchivesAsync(ArchiveLocationItem location)
     {
-        if (sender is not Button { Tag: ArchiveListItem archive })
-        {
-            return;
-        }
+        _scanCancellation?.Cancel();
+        _contentsCancellation?.Cancel();
+        _previewCancellation?.Cancel();
+        var cancellation = new CancellationTokenSource();
+        _scanCancellation = cancellation;
+        var token = cancellation.Token;
 
-        ManifestPanel.IsVisible = true;
-        ManifestErrorText.IsVisible = false;
-        ManifestErrorText.Text = string.Empty;
-        ManifestMetadataText.Text = string.Empty;
-        ManifestFilesList.ItemsSource = null;
-        ManifestDirectoriesList.ItemsSource = null;
-        ManifestLoadingText.IsVisible = true;
+        _archiveRows.Clear();
+        ArchiveContentsTree.ItemsSource = null;
+        ArchiveContentsTree.IsVisible = false;
+        ContentsStatusText.Text = "Select an archive";
+        ContentsStatusText.IsVisible = true;
+        ClearPreview("Select a file to preview");
+        ScanLoadingIndicator.IsVisible = true;
+        ScanStatusText.Text = $"Scanning {location.Directory}...";
+
+        try
+        {
+            var archivePaths = await Task.Run(
+                () => Directory.Exists(location.Directory)
+                    ? Directory.EnumerateFiles(location.Directory, "*.eva", SearchOption.TopDirectoryOnly).ToArray()
+                    : Array.Empty<string>(),
+                token);
+
+            var unreadableHeaders = 0;
+            var items = await Task.WhenAll(archivePaths.Select(async path =>
+            {
+                try
+                {
+                    var header = await Task.Run(
+                        () => _archiveReader.ReadHeaderAsync(path, token), token);
+                    return ArchiveListRowViewModel.ForArchive(path, header);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch
+                {
+                    Interlocked.Increment(ref unreadableHeaders);
+                    return null;
+                }
+            }));
+
+            token.ThrowIfCancellationRequested();
+            var readableItems = items.Where(item => item is not null).Cast<ArchiveListRowViewModel>().ToArray();
+            var archivesByPath = readableItems.ToDictionary(item => item.Path, StringComparer.OrdinalIgnoreCase);
+            var groups = ArchiveDateGrouping.GroupArchives(readableItems.Select(item => item.Path), TimeProvider.System);
+            foreach (var group in groups)
+            {
+                _archiveRows.Add(ArchiveListRowViewModel.ForHeader(group.Heading));
+                foreach (var archivePath in group.ArchivePaths)
+                {
+                    if (archivesByPath.TryGetValue(archivePath, out var archive))
+                    {
+                        _archiveRows.Add(archive);
+                    }
+                }
+            }
+
+            var groupedArchiveCount = groups.Sum(group => group.ArchivePaths.Count);
+            ScanStatusText.Text = groupedArchiveCount == 0
+                ? archivePaths.Length == 0
+                    ? $"No archives found in {location.Directory}."
+                    : "No archives with valid timestamp filenames were found."
+                : unreadableHeaders == 0
+                    ? $"{groupedArchiveCount} archive(s) found."
+                    : $"{groupedArchiveCount} archive(s) found; {unreadableHeaders} header(s) could not be read.";
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch
+        {
+            if (ReferenceEquals(_scanCancellation, cancellation))
+            {
+                ScanStatusText.Text = "The selected archive folder could not be scanned.";
+            }
+        }
+        finally
+        {
+            if (ReferenceEquals(_scanCancellation, cancellation))
+            {
+                _scanCancellation = null;
+                ScanLoadingIndicator.IsVisible = false;
+            }
+
+            cancellation.Dispose();
+        }
+    }
+
+    private async void ArchiveList_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (ArchiveList.SelectedItem is ArchiveListRowViewModel { IsArchive: true } archive)
+        {
+            await LoadArchiveContentsAsync(archive);
+        }
+    }
+
+    private async Task LoadArchiveContentsAsync(ArchiveListRowViewModel archive)
+    {
+        _contentsCancellation?.Cancel();
+        _previewCancellation?.Cancel();
+        var cancellation = new CancellationTokenSource();
+        _contentsCancellation = cancellation;
+        var token = cancellation.Token;
+
+        ArchiveContentsTree.ItemsSource = null;
+        ArchiveContentsTree.IsVisible = false;
+        ContentsStatusText.Text = "Loading archive contents...";
+        ContentsStatusText.IsVisible = true;
+        ContentsLoadingIndicator.IsVisible = true;
+        ClearPreview("Select a file to preview");
 
         try
         {
             var password = App.PasswordStore.GetPassword();
-            if (password is null)
+            if (string.IsNullOrWhiteSpace(password))
             {
-                ShowManifestError("No password is stored. Please configure EVA and try again.");
+                ContentsStatusText.Text = "No password is stored.";
                 return;
             }
 
-            var manifest = await _archiveReader.ReadManifestAsync(archive.Path, password);
-            ManifestMetadataText.Text = FormatManifestMetadata(manifest);
-            ManifestFilesList.ItemsSource = manifest.Files.Select(ManifestFileItem.From).ToList();
-            ManifestDirectoriesList.ItemsSource = manifest.Directories.Select(ManifestDirectoryItem.From).ToList();
-
-            System.Diagnostics.Debug.WriteLine($"Files in manifest: {manifest.Files.Count}");
-            System.Diagnostics.Debug.WriteLine($"Directories in manifest: {manifest.Directories.Count}");
-            System.Diagnostics.Debug.WriteLine($"Deleted in manifest: {manifest.Deleted.Count}");            
+            var manifest = await Task.Run(
+                () => _archiveReader.ReadManifestAsync(archive.Path, password, token), token);
+            token.ThrowIfCancellationRequested();
+            archive.SetManual(manifest.IsManual);
+            var tree = await Task.Run(
+                () => ArchiveContentProjection.BuildTree(manifest.Files, manifest.Directories, manifest.Deleted), token);
+            token.ThrowIfCancellationRequested();
+            ArchiveContentsTree.ItemsSource = tree;
+            ArchiveContentsTree.IsVisible = true;
+            ContentsStatusText.IsVisible = false;
+        }
+        catch (OperationCanceledException)
+        {
         }
         catch
         {
-            ShowManifestError("This archive was created with a different password and cannot be displayed.");
+            if (ReferenceEquals(_contentsCancellation, cancellation))
+            {
+                ContentsStatusText.Text = "This archive could not be decrypted or read.";
+            }
         }
         finally
         {
-            ManifestLoadingText.IsVisible = false;
+            if (ReferenceEquals(_contentsCancellation, cancellation))
+            {
+                _contentsCancellation = null;
+                ContentsLoadingIndicator.IsVisible = false;
+            }
+
+            cancellation.Dispose();
         }
     }
 
-    private void RestoreArchive_Click(object? sender, RoutedEventArgs e)
+    private async void ArchiveContentsTree_SelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
-        if (sender is not Button { Tag: ArchiveListItem archive })
+        if (ArchiveContentsTree.SelectedItem is ArchiveContentNode node)
         {
+            await LoadPreviewAsync(node);
+        }
+    }
+
+    private async Task LoadPreviewAsync(ArchiveContentNode node)
+    {
+        _previewCancellation?.Cancel();
+        var cancellation = new CancellationTokenSource();
+        _previewCancellation = cancellation;
+        var token = cancellation.Token;
+        ClearPreview("No preview available");
+
+        if (node.IsDirectory || node.IsDeleted || string.IsNullOrWhiteSpace(node.ArchivePath) ||
+            ArchiveList.SelectedItem is not ArchiveListRowViewModel { IsArchive: true } archive)
+        {
+            if (ReferenceEquals(_previewCancellation, cancellation))
+            {
+                _previewCancellation = null;
+            }
+
+            cancellation.Dispose();
             return;
         }
 
-        App.ShowRestoreSnapshot(archive.Path);
-    }
-
-    private void ShowManifestError(string message)
-    {
-        ManifestErrorText.Text = message;
-        ManifestErrorText.IsVisible = true;
-    }
-
-    private void CloseManifest_Click(object? sender, RoutedEventArgs e)
-    {
-        ManifestPanel.IsVisible = false;
-    }
-
-    private static string FormatManifestMetadata(ArchiveManifest manifest)
-    {
-        var parent = string.IsNullOrWhiteSpace(manifest.ParentArchiveId) ? "None" : manifest.ParentArchiveId;
-        return $"Archive ID: {manifest.ArchiveId}{Environment.NewLine}" +
-               $"Archive type: {FormatArchiveType(manifest.ArchiveType, manifest.IsManual)}{Environment.NewLine}" +
-               $"Created: {manifest.CreatedUtc.ToLocalTime():dd MMM yyyy HH:mm}{Environment.NewLine}" +
-               $"Chain ID: {manifest.ChainId}{Environment.NewLine}" +
-               $"Parent archive ID: {parent}";
-    }
-
-    private static string FormatArchiveType(ArchiveType archiveType, bool isManual = false)
-    {
-        if (isManual)
+        var password = App.PasswordStore.GetPassword();
+        if (string.IsNullOrWhiteSpace(password))
         {
-            return "Manual Backup";
-        }
-
-        return archiveType == ArchiveType.Full ? "Full Backup" : "Incremental Backup";
-    }
-
-    private sealed record ArchiveScanResult(
-        string? Directory,
-        IReadOnlyList<ArchiveListItem> Items,
-        string Message);
-
-    private sealed class ArchiveListItem
-    {
-        public ArchiveListItem(string path, ArchiveHeader header, long size, bool isManual)
-        {
-            Path = path;
-            FileName = System.IO.Path.GetFileName(path);
-            TypeLabel = FormatArchiveType(header.ArchiveType, isManual);
-            CreatedUtc = header.CreatedUtc;
-            DetailsLabel = $"{FormatSize(size)} | {header.CreatedUtc.ToLocalTime():dd MMM yyyy HH:mm}";
-        }
-
-        public string Path { get; }
-        public string FileName { get; }
-        public string TypeLabel { get; }
-        public DateTimeOffset CreatedUtc { get; }
-        public string DetailsLabel { get; }
-
-        private static string FormatSize(long bytes)
-        {
-            const double kilobyte = 1024;
-            const double megabyte = kilobyte * 1024;
-            const double gigabyte = megabyte * 1024;
-
-            return bytes switch
+            if (ReferenceEquals(_previewCancellation, cancellation))
             {
-                >= (long)gigabyte => $"{bytes / gigabyte:0.##} GB",
-                >= (long)megabyte => $"{bytes / megabyte:0.##} MB",
-                _ => $"{Math.Max(1, bytes / kilobyte):0.##} KB"
-            };
+                _previewCancellation = null;
+            }
+
+            cancellation.Dispose();
+            return;
+        }
+
+        try
+        {
+            var content = await Task.Run(
+                () => _archiveReader.ReadFileContentAsync(archive.Path, node.ArchivePath, password, token), token);
+            token.ThrowIfCancellationRequested();
+            var preview = ArchiveContentProjection.CreateTextPreview(content);
+            if (preview.IsSupported)
+            {
+                PreviewTextBox.Text = preview.Text;
+                PreviewTextBox.IsVisible = true;
+                PreviewStatusText.IsVisible = false;
+                PreviewTruncatedNotice.IsVisible = preview.IsTruncated;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch
+        {
+            if (ReferenceEquals(_previewCancellation, cancellation))
+            {
+                ClearPreview("No preview available");
+            }
+        }
+        finally
+        {
+            if (ReferenceEquals(_previewCancellation, cancellation))
+            {
+                _previewCancellation = null;
+            }
+
+            cancellation.Dispose();
         }
     }
 
-    private sealed class ManifestFileItem
+    private void ClearPreview(string message)
     {
-        public string DetailsLabel { get; private init; } = string.Empty;
-
-        public static ManifestFileItem From(FileEntry entry) => new()
-        {
-            DetailsLabel = $"{entry.RelativePath} | {entry.Operation} | {FormatSize(entry.FileSize)} | " +
-                           $"{entry.LastModifiedUtc.ToLocalTime():dd MMM yyyy HH:mm}"
-        };
-
-        private static string FormatSize(long bytes) => bytes switch
-        {
-            >= 1024 * 1024 * 1024 => $"{bytes / (1024d * 1024 * 1024):0.##} GB",
-            >= 1024 * 1024 => $"{bytes / (1024d * 1024):0.##} MB",
-            _ => $"{Math.Max(1, bytes / 1024d):0.##} KB"
-        };
+        PreviewTextBox.Text = string.Empty;
+        PreviewTextBox.IsVisible = false;
+        PreviewTruncatedNotice.IsVisible = false;
+        PreviewStatusText.Text = message;
+        PreviewStatusText.IsVisible = true;
     }
 
-    private sealed class ManifestDirectoryItem
+    private void CancelPendingLoads()
     {
-        public string DetailsLabel { get; private init; } = string.Empty;
-
-        public static ManifestDirectoryItem From(DirectoryEntry entry) => new()
-        {
-            DetailsLabel = $"{entry.RelativePath} | {entry.Operation} | " +
-                           $"{(entry.LastModifiedUtc.HasValue ? entry.LastModifiedUtc.Value.ToLocalTime().ToString("dd MMM yyyy HH:mm") : "No timestamp")}"
-        };
+        _scanCancellation?.Cancel();
+        _contentsCancellation?.Cancel();
+        _previewCancellation?.Cancel();
     }
+
+    private sealed record ArchiveLocationItem(string DisplayName, string Directory);
+
 }
