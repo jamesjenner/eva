@@ -10,25 +10,37 @@ public sealed class ArchiveListRowViewModel : INotifyPropertyChanged
     private readonly string _fileName;
     private readonly ArchiveType _archiveType;
     private string _typeLabel;
+    private string _displayText;
+    private bool _isOther;
 
-    private ArchiveListRowViewModel(string path, string heading, string fileName, ArchiveType archiveType, DateTimeOffset createdUtc)
+    private ArchiveListRowViewModel(
+        string path,
+        string heading,
+        string fileName,
+        ArchiveType archiveType,
+        DateTimeOffset createdUtc,
+        bool unreadableHeader = false)
     {
         Path = path;
         Heading = heading;
         _fileName = fileName;
         _archiveType = archiveType;
-        TimestampLabel = path.Length == 0
+        TimestampLabel = path.Length == 0 || unreadableHeader
             ? string.Empty
             : createdUtc.ToLocalTime().ToString("dd MMM yyyy HH:mm");
+        _displayText = unreadableHeader ? fileName : TimestampLabel;
         _typeLabel = path.Length == 0
             ? string.Empty
-            : ArchiveContentProjection.GetArchiveTypeLabel(fileName, archiveType);
+            : unreadableHeader
+                ? ArchiveContentProjection.GetArchiveTypeLabelFromFilename(fileName)
+                : ArchiveContentProjection.GetArchiveTypeLabel(fileName, archiveType);
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
     public string Path { get; }
     public string Heading { get; }
     public string TimestampLabel { get; }
+    public string DisplayText => _displayText;
     public string TypeLabel => _typeLabel;
     public bool IsHeader => !IsArchive;
     public bool IsArchive => Path.Length > 0;
@@ -51,9 +63,58 @@ public sealed class ArchiveListRowViewModel : INotifyPropertyChanged
             header.CreatedUtc);
     }
 
+    public static ArchiveListRowViewModel ForOtherArchive(string path, ArchiveHeader header)
+    {
+        var row = ForArchive(path, header);
+        row.SetOtherDisplay();
+        return row;
+    }
+
+    public static ArchiveListRowViewModel ForUnreadableArchive(string path)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+
+        var fileName = System.IO.Path.GetFileName(path);
+        return new ArchiveListRowViewModel(path, string.Empty, fileName, default, default, unreadableHeader: true);
+    }
+
+    public static IReadOnlyList<ArchiveListRowViewModel> BuildRows(
+        IReadOnlyList<ArchiveDateGroup> groups,
+        IReadOnlyDictionary<string, ArchiveListRowViewModel> archiveRowsByPath)
+    {
+        ArgumentNullException.ThrowIfNull(groups);
+        ArgumentNullException.ThrowIfNull(archiveRowsByPath);
+
+        var groupedPaths = groups.SelectMany(group => group.ArchivePaths).ToArray();
+        if (groupedPaths.Length != archiveRowsByPath.Count ||
+            groupedPaths.Distinct(StringComparer.OrdinalIgnoreCase).Count() != groupedPaths.Length ||
+            groupedPaths.Any(path => !archiveRowsByPath.ContainsKey(path)))
+        {
+            throw new InvalidOperationException("Every archive must appear in exactly one display group.");
+        }
+
+        var rows = new List<ArchiveListRowViewModel>(groupedPaths.Length + groups.Count);
+        foreach (var group in groups)
+        {
+            rows.Add(ForHeader(group.Heading));
+            foreach (var path in group.ArchivePaths)
+            {
+                var archiveRow = archiveRowsByPath[path];
+                if (group.Heading == "Other")
+                {
+                    archiveRow.SetOtherDisplay();
+                }
+
+                rows.Add(archiveRow);
+            }
+        }
+
+        return rows;
+    }
+
     public void SetManual(bool isManual)
     {
-        if (!IsArchive)
+        if (!IsArchive || _isOther)
         {
             return;
         }
@@ -65,6 +126,18 @@ public sealed class ArchiveListRowViewModel : INotifyPropertyChanged
         }
 
         _typeLabel = updatedLabel;
+        OnPropertyChanged(nameof(TypeLabel));
+        OnPropertyChanged(nameof(IsFull));
+    }
+
+    private void SetOtherDisplay()
+    {
+        _isOther = true;
+        _displayText = ArchiveDateGrouping.HasParseableTimestamp(Path) && TimestampLabel.Length > 0
+            ? TimestampLabel
+            : _fileName;
+        _typeLabel = ArchiveContentProjection.GetArchiveTypeLabelFromFilename(_fileName);
+        OnPropertyChanged(nameof(DisplayText));
         OnPropertyChanged(nameof(TypeLabel));
         OnPropertyChanged(nameof(IsFull));
     }

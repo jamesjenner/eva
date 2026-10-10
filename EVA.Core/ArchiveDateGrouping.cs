@@ -29,11 +29,19 @@ public static class ArchiveDateGrouping
         var currentMonthArchives = new List<ParsedArchive>();
         var previousMonthArchives = new List<ParsedArchive>();
         var olderMonths = new Dictionary<DateOnly, List<ParsedArchive>>();
+        var otherArchives = new List<OtherArchive>();
 
         foreach (var archivePath in archivePaths)
         {
             if (!TryParseLocalTimestamp(archivePath, timeProvider.LocalTimeZone, out var localTimestamp))
             {
+                otherArchives.Add(new OtherArchive(archivePath, null));
+                continue;
+            }
+
+            if (localTimestamp > localNow)
+            {
+                otherArchives.Add(new OtherArchive(archivePath, localTimestamp));
                 continue;
             }
 
@@ -90,8 +98,12 @@ public static class ArchiveDateGrouping
             AddGroup(groups, month.ToDateTime(TimeOnly.MinValue).ToString("MMMM yyyy", culture), archives);
         }
 
+        AddOtherGroup(groups, otherArchives);
         return groups;
     }
+
+    public static bool HasParseableTimestamp(string archivePath) =>
+        TryParseLocalTimestamp(archivePath, TimeZoneInfo.Utc, out _);
 
     private static bool TryParseLocalTimestamp(
         string archivePath,
@@ -149,7 +161,26 @@ public static class ArchiveDateGrouping
                 .ToArray()));
     }
 
+    private static void AddOtherGroup(List<ArchiveDateGroup> groups, List<OtherArchive> archives)
+    {
+        if (archives.Count == 0)
+        {
+            return;
+        }
+
+        groups.Add(new ArchiveDateGroup(
+            "Other",
+            archives
+                .OrderBy(archive => archive.LocalTimestamp is null)
+                .ThenByDescending(archive => archive.LocalTimestamp)
+                .ThenBy(archive => Path.GetFileName(archive.Path), StringComparer.OrdinalIgnoreCase)
+                .ThenBy(archive => Path.GetFileName(archive.Path), StringComparer.Ordinal)
+                .Select(archive => archive.Path)
+                .ToArray()));
+    }
+
     private sealed record ParsedArchive(string Path, DateTimeOffset LocalTimestamp);
+    private sealed record OtherArchive(string Path, DateTimeOffset? LocalTimestamp);
 }
 
 public sealed record ArchiveDateGroup(string Heading, IReadOnlyList<string> ArchivePaths);

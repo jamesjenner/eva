@@ -163,6 +163,94 @@ public sealed class ArchiveContentProjectionTests : IDisposable
     }
 
     [Fact]
+    public void ArchiveGroupsPutFutureArchivesOneMinuteAndOneYearAheadInOther()
+    {
+        var timeProvider = CreateTimeProvider(new DateTime(2026, 5, 14, 12, 0, 0), TimeSpan.Zero);
+        var oneMinuteAhead = CreateArchiveAtLocal(new DateTime(2026, 5, 14, 12, 1, 0), timeProvider.LocalTimeZone);
+        var oneYearAhead = CreateArchiveAtLocal(new DateTime(2027, 5, 14, 12, 0, 0), timeProvider.LocalTimeZone);
+
+        var groups = GroupArchives(timeProvider);
+
+        Assert.Equal("Other", groups[^1].Heading);
+        Assert.Equal(new[] { oneYearAhead, oneMinuteAhead }, groups[^1].ArchivePaths);
+    }
+
+    [Fact]
+    public void ArchiveGroupsPutUnparseableAndInvalidDateFilenamesInOther()
+    {
+        var timeProvider = CreateTimeProvider(new DateTime(2026, 5, 14, 12, 0, 0), TimeSpan.Zero);
+        var backup = CreateArchiveFile("backup.eva");
+        var invalidDate = CreateArchiveFile("2026_13_45_990000_full_01.eva");
+
+        var groups = GroupArchives(timeProvider);
+
+        Assert.Equal("Other", Assert.Single(groups).Heading);
+        Assert.Equal(new[] { backup, invalidDate }.OrderBy(path => Path.GetFileName(path), StringComparer.OrdinalIgnoreCase),
+            groups[0].ArchivePaths.OrderBy(path => Path.GetFileName(path), StringComparer.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void OtherGroupIsLastAndOmittedWhenEmpty()
+    {
+        var timeProvider = CreateTimeProvider(new DateTime(2026, 5, 14, 12, 0, 0), TimeSpan.Zero);
+        CreateArchiveAtLocal(new DateTime(2026, 5, 14, 11, 0, 0), timeProvider.LocalTimeZone);
+
+        Assert.DoesNotContain(GroupArchives(timeProvider), group => group.Heading == "Other");
+
+        CreateArchiveFile("backup.eva");
+        Assert.Equal("Other", GroupArchives(timeProvider)[^1].Heading);
+    }
+
+    [Fact]
+    public void OtherRowsDisplayFilenameAndUseFilenameTypeOrUnknown()
+    {
+        var timeProvider = CreateTimeProvider(new DateTime(2026, 5, 14, 12, 0, 0), TimeSpan.Zero);
+        var incrementalPath = CreateArchiveFile("backup_incremental_copy.eva");
+        var unknownPath = CreateArchiveFile("backup.eva");
+        var header = new ArchiveHeader
+        {
+            ArchiveType = ArchiveType.Full,
+            CreatedUtc = DateTimeOffset.UnixEpoch
+        };
+
+        var incremental = ArchiveListRowViewModel.ForOtherArchive(incrementalPath, header);
+        var unknown = ArchiveListRowViewModel.ForOtherArchive(unknownPath, header);
+
+        Assert.True(incremental.IsSelectable);
+        Assert.Equal("backup_incremental_copy.eva", incremental.DisplayText);
+        Assert.Equal("Incremental", incremental.TypeLabel);
+        Assert.Equal("backup.eva", unknown.DisplayText);
+        Assert.Equal("Unknown", unknown.TypeLabel);
+    }
+
+    [Fact]
+    public void MixedEvaDirectoryProducesOneSelectableArchiveRowPerFile()
+    {
+        var timeProvider = CreateTimeProvider(new DateTime(2026, 5, 14, 12, 0, 0), TimeSpan.Zero);
+        CreateArchiveAtLocal(new DateTime(2026, 5, 14, 11, 0, 0), timeProvider.LocalTimeZone);
+        CreateArchiveAtLocal(new DateTime(2026, 5, 14, 12, 1, 0), timeProvider.LocalTimeZone);
+        CreateArchiveFile("backup_incremental.eva");
+        CreateArchiveFile("backup.eva");
+
+        var archiveFiles = Directory.EnumerateFiles(_tempDirectory, "*.eva").ToArray();
+        var archiveRows = archiveFiles.ToDictionary(
+            path => path,
+            path => ArchiveListRowViewModel.ForArchive(
+                path,
+                new ArchiveHeader
+                {
+                    ArchiveType = ArchiveType.Full,
+                    CreatedUtc = DateTimeOffset.UnixEpoch
+                }),
+            StringComparer.OrdinalIgnoreCase);
+        var groups = GroupArchives(timeProvider);
+        var rows = ArchiveListRowViewModel.BuildRows(groups, archiveRows);
+
+        Assert.Equal(archiveFiles.Length, rows.Count(row => row.IsArchive));
+        Assert.All(rows.Where(row => row.IsArchive), row => Assert.True(row.IsSelectable));
+    }
+
+    [Fact]
     public void ArchiveGroupsFollowLocalMidnightAcrossUtcDateBoundary()
     {
         var timeProvider = CreateTimeProvider(new DateTime(2026, 5, 12, 0, 10, 0), TimeSpan.FromHours(2));
@@ -529,6 +617,13 @@ public sealed class ArchiveContentProjectionTests : IDisposable
         var localDateTime = DateTime.SpecifyKind(localTimestamp, DateTimeKind.Unspecified);
         var utcTimestamp = TimeZoneInfo.ConvertTimeToUtc(localDateTime, timeZone);
         var fileName = utcTimestamp.ToString("yyyy_MM_dd_HHmmss", CultureInfo.InvariantCulture) + "_full_01.eva";
+        var path = Path.Combine(_tempDirectory, fileName);
+        File.WriteAllBytes(path, []);
+        return path;
+    }
+
+    private string CreateArchiveFile(string fileName)
+    {
         var path = Path.Combine(_tempDirectory, fileName);
         File.WriteAllBytes(path, []);
         return path;

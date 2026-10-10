@@ -45,12 +45,7 @@ public static class ArchiveContentProjection
 
     public static string GetArchiveTypeLabel(string fileName, ArchiveType headerType, bool isManual = false)
     {
-        var name = Path.GetFileNameWithoutExtension(fileName);
-        var type = name.Contains("_full_", StringComparison.OrdinalIgnoreCase)
-            ? ArchiveType.Full
-            : name.Contains("_incremental_", StringComparison.OrdinalIgnoreCase)
-                ? ArchiveType.Incremental
-                : headerType;
+        var type = GetArchiveTypeFromFilename(fileName) ?? headerType;
 
         if (type == ArchiveType.Full && isManual)
         {
@@ -58,6 +53,27 @@ public static class ArchiveContentProjection
         }
 
         return type == ArchiveType.Full ? "Full" : "Incremental";
+    }
+
+    public static string GetArchiveTypeLabelFromFilename(string fileName) =>
+        GetArchiveTypeFromFilename(fileName) switch
+        {
+            ArchiveType.Full => "Full",
+            ArchiveType.Incremental => "Incremental",
+            _ => "Unknown"
+        };
+
+    private static ArchiveType? GetArchiveTypeFromFilename(string fileName)
+    {
+        var name = Path.GetFileNameWithoutExtension(fileName);
+        if (name.Contains("_full_", StringComparison.OrdinalIgnoreCase))
+        {
+            return ArchiveType.Full;
+        }
+
+        return name.Contains("_incremental_", StringComparison.OrdinalIgnoreCase)
+            ? ArchiveType.Incremental
+            : null;
     }
 
     public static TextPreview CreateTextPreview(byte[] content, int maxBytes = MaxPreviewBytes)

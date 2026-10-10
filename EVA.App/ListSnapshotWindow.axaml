@@ -71,7 +71,7 @@
                                             Margin="0,0,0,6"
                                             IsVisible="{Binding IsArchive}">
                                         <StackPanel Spacing="3">
-                                            <TextBlock Text="{Binding TimestampLabel}" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="{Binding DisplayText}" TextTrimming="CharacterEllipsis" />
                                             <TextBlock Text="{Binding TypeLabel}"
                                                        Classes.fullArchive="{Binding IsFull}"
                                                        Opacity="0.85" />

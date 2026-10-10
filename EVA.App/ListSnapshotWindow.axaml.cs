@@ -172,31 +172,30 @@ public partial class ListSnapshotWindow : SukiWindow
                 catch
                 {
                     Interlocked.Increment(ref unreadableHeaders);
-                    return null;
+                    return ArchiveListRowViewModel.ForUnreadableArchive(path);
                 }
             }));
 
             token.ThrowIfCancellationRequested();
-            var readableItems = items.Where(item => item is not null).Cast<ArchiveListRowViewModel>().ToArray();
-            var archivesByPath = readableItems.ToDictionary(item => item.Path, StringComparer.OrdinalIgnoreCase);
-            var groups = ArchiveDateGrouping.GroupArchives(readableItems.Select(item => item.Path), TimeProvider.System);
-            foreach (var group in groups)
+            var archiveRows = items;
+            var archivesByPath = archiveRows.ToDictionary(item => item.Path, StringComparer.OrdinalIgnoreCase);
+            var groups = ArchiveDateGrouping.GroupArchives(archivePaths, TimeProvider.System);
+            var displayRows = ArchiveListRowViewModel.BuildRows(groups, archivesByPath);
+            if (displayRows.Count(row => row.IsArchive) != archivePaths.Length)
             {
-                _archiveRows.Add(ArchiveListRowViewModel.ForHeader(group.Heading));
-                foreach (var archivePath in group.ArchivePaths)
-                {
-                    if (archivesByPath.TryGetValue(archivePath, out var archive))
-                    {
-                        _archiveRows.Add(archive);
-                    }
-                }
+                throw new InvalidOperationException("The archive list omitted one or more archive files.");
             }
 
-            var groupedArchiveCount = groups.Sum(group => group.ArchivePaths.Count);
+            foreach (var row in displayRows)
+            {
+                _archiveRows.Add(row);
+            }
+
+            var groupedArchiveCount = displayRows.Count(row => row.IsArchive);
             ScanStatusText.Text = groupedArchiveCount == 0
                 ? archivePaths.Length == 0
                     ? $"No archives found in {location.Directory}."
-                    : "No archives with valid timestamp filenames were found."
+                    : "No readable archives were found."
                 : unreadableHeaders == 0
                     ? $"{groupedArchiveCount} archive(s) found."
                     : $"{groupedArchiveCount} archive(s) found; {unreadableHeaders} header(s) could not be read.";
