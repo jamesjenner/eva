@@ -5,6 +5,8 @@ using EVA.Core.Models;
 
 namespace EVA.App;
 
+public sealed record ArchiveLocationViewModel(string DisplayName, string Directory);
+
 public sealed class ArchiveListRowViewModel : INotifyPropertyChanged
 {
     private readonly string _fileName;

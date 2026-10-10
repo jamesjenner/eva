@@ -16,6 +16,7 @@ public partial class App : Application
 {
     private static readonly string AppDataDirectory = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "EVA");
+    public static string PreviewCacheRoot { get; } = Path.Combine(AppDataDirectory, "preview-cache");
     public static ConfigStore ConfigStore { get; } = new(AppDataDirectory);
     public static PasswordStore PasswordStore { get; } = new();
     public static BackupOrchestrator? Orchestrator { get; private set; }
@@ -77,11 +78,10 @@ public partial class App : Application
             var options = new OptionsWindow();
             options.Show();
         }
-        catch (Exception ex)
+        catch
         {
             var options = new OptionsWindow();
             options.Show();
-            System.Diagnostics.Debug.WriteLine($"EVA startup error: {ex.Message}");
         }
     }
 
@@ -144,6 +144,17 @@ public partial class App : Application
 
     public static void CleanUpStaleTemporaryFiles()
     {
+        try
+        {
+            if (Directory.Exists(PreviewCacheRoot))
+            {
+                Directory.Delete(PreviewCacheRoot, recursive: true);
+            }
+        }
+        catch
+        {
+        }
+
         var tempRoots = new[]
         {
             Path.GetTempPath(),
@@ -230,7 +241,6 @@ public partial class App : Application
     {
         if (Orchestrator is null)
         {
-            System.Diagnostics.Debug.WriteLine("Cannot create full backup: orchestrator not running.");
             return;
         }
 
@@ -239,9 +249,8 @@ public partial class App : Application
             var result = await Orchestrator.RunOnceAsync(manualSnapshot: true, cancellationToken: CancellationToken.None);
             await HandleBackupResultAsync(result, _orchestratorInterval);
         }
-        catch (Exception ex)
+        catch
         {
-            System.Diagnostics.Debug.WriteLine($"Manual full backup failed: {ex.Message}");
         }
     }
 
@@ -261,7 +270,6 @@ public partial class App : Application
         var password = PasswordStore.GetPassword();
         if (string.IsNullOrWhiteSpace(password))
         {
-            System.Diagnostics.Debug.WriteLine("Cannot restore archive: no password is stored.");
             return;
         }
 
@@ -277,7 +285,6 @@ public partial class App : Application
             {
                 var paths = result.UnstableFiles.Select(file => file.RelativePath);
                 var nextRun = DateTimeOffset.UtcNow + interval;
-                ShowUnstableFilesToast(result.UnstableFiles.Count);
                 ShowOrUpdateStatusWindow(paths, result.LastSuccessfulBackupUtc, nextRun);
             }
             else
@@ -310,10 +317,4 @@ public partial class App : Application
         StatusWindow = null;
     }
 
-    private static void ShowUnstableFilesToast(int fileCount)
-    {
-        System.Diagnostics.Debug.WriteLine(
-            $"Backup incomplete: {fileCount} file{(fileCount == 1 ? "" : "s")} could not be read and " +
-            $"{(fileCount == 1 ? "was" : "were")} skipped. See the status window for details.");
-    }
 }

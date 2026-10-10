@@ -2,8 +2,9 @@
                  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                  xmlns:suki="clr-namespace:SukiUI.Controls;assembly=SukiUI"
                  xmlns:app="using:EVA.App"
+                 xmlns:core="using:EVA.Core"
                  x:Class="EVA.App.ListSnapshotWindow"
-                 x:CompileBindings="False"
+                 x:CompileBindings="True"
                  Title="Archive snapshots"
                  Width="1160"
                  Height="760"
@@ -26,7 +27,7 @@
                       Margin="-6,0,-6,0"
                       SelectionChanged="LocationSelector_SelectionChanged">
                 <ComboBox.ItemTemplate>
-                    <DataTemplate>
+                    <DataTemplate x:DataType="app:ArchiveLocationViewModel">
                         <TextBlock Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis" />
                     </DataTemplate>
                 </ComboBox.ItemTemplate>
@@ -53,7 +54,7 @@
                              Grid.Row="2"
                              SelectionChanged="ArchiveList_SelectionChanged">
                         <ListBox.Styles>
-                            <Style Selector="ListBoxItem">
+                            <Style Selector="ListBoxItem" x:DataType="app:ArchiveListRowViewModel">
                                 <Setter Property="IsEnabled" Value="{Binding IsSelectable}" />
                                 <Setter Property="Focusable" Value="{Binding IsSelectable}" />
                             </Style>
@@ -109,7 +110,7 @@
                                   IsVisible="False"
                                   SelectionChanged="ArchiveContentsTree_SelectionChanged">
                             <TreeView.ItemTemplate>
-                                <TreeDataTemplate ItemsSource="{Binding Children}">
+                                <TreeDataTemplate x:DataType="core:ArchiveContentNode" ItemsSource="{Binding Children}">
                                     <TextBlock Text="{Binding Name}"
                                                Classes.deletedArchiveNode="{Binding IsDeleted}"
                                                TextTrimming="CharacterEllipsis" />
@@ -129,7 +130,7 @@
                           ResizeDirection="Columns" />
 
             <Border Grid.Column="4" Classes="card" MinWidth="320" Padding="10">
-                <Grid RowDefinitions="Auto,Auto,*" RowSpacing="8">
+                <Grid RowDefinitions="Auto,Auto,Auto,*" RowSpacing="8">
                     <TextBlock Text="Preview" FontWeight="SemiBold" />
                     <TextBlock x:Name="PreviewTruncatedNotice"
                                Grid.Row="1"
@@ -137,7 +138,12 @@
                                IsVisible="False"
                                Foreground="{DynamicResource EVAWarningBrush}"
                                TextWrapping="Wrap" />
-                    <Grid Grid.Row="2">
+                    <TextBlock x:Name="PreviewCacheNotice"
+                               Grid.Row="2"
+                               IsVisible="False"
+                               Foreground="{DynamicResource EVAWarningBrush}"
+                               TextWrapping="Wrap" />
+                    <Grid Grid.Row="3">
                         <TextBlock x:Name="PreviewStatusText"
                                    Text="Select a file to preview"
                                    TextWrapping="Wrap"

@@ -76,7 +76,29 @@ public static class ArchiveContentProjection
             : null;
     }
 
-    public static TextPreview CreateTextPreview(byte[] content, int maxBytes = MaxPreviewBytes)
+    public static async Task<TextPreview> CreateTextPreviewAsync(
+        string filePath,
+        int maxBytes = MaxPreviewBytes,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(filePath);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxBytes);
+
+        await using var stream = new FileStream(
+            filePath,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read,
+            bufferSize: 4096,
+            useAsync: true);
+        var originalLength = stream.Length;
+        var bytesToRead = (int)Math.Min(originalLength, maxBytes);
+        var content = new byte[bytesToRead];
+        await stream.ReadExactlyAsync(content.AsMemory(), cancellationToken).ConfigureAwait(false);
+        return CreateTextPreview(content, maxBytes, originalLength);
+    }
+
+    public static TextPreview CreateTextPreview(byte[] content, int maxBytes = MaxPreviewBytes, long? originalLength = null)
     {
         ArgumentNullException.ThrowIfNull(content);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxBytes);
@@ -119,7 +141,14 @@ public static class ArchiveContentProjection
 
         if (bomEncoding is not null)
         {
-            return CreateBomTextPreview(content, maxBytes, bomEncoding, bomLength, codeUnitSize, isUtf16BigEndian);
+            return CreateBomTextPreview(
+                content,
+                maxBytes,
+                originalLength ?? content.Length,
+                bomEncoding,
+                bomLength,
+                codeUnitSize,
+                isUtf16BigEndian);
         }
 
         var scanLength = Math.Min(content.Length, BinaryScanBytes);
@@ -129,7 +158,7 @@ public static class ArchiveContentProjection
         }
 
         var length = Math.Min(content.Length, maxBytes);
-        var truncated = content.Length > maxBytes;
+        var truncated = (originalLength ?? content.Length) > maxBytes;
         string text;
 
         try
@@ -157,6 +186,7 @@ public static class ArchiveContentProjection
     private static TextPreview CreateBomTextPreview(
         byte[] content,
         int maxBytes,
+        long originalLength,
         Encoding encoding,
         int bomLength,
         int codeUnitSize,
@@ -177,7 +207,7 @@ public static class ArchiveContentProjection
             return TextPreview.Unsupported;
         }
 
-        var truncated = content.Length > maxBytes;
+        var truncated = originalLength > maxBytes;
         var previewLength = Math.Max(0, Math.Min(content.Length, maxBytes) - bomLength);
         previewLength -= previewLength % codeUnitSize;
 

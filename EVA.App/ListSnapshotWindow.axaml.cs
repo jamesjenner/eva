@@ -13,11 +13,17 @@ namespace EVA.App;
 public partial class ListSnapshotWindow : SukiWindow
 {
     private readonly IArchiveReader _archiveReader = new ArchiveReader();
-    private readonly ObservableCollection<ArchiveLocationItem> _locations = [];
+    private readonly IPreviewCacheService _previewCache = new PreviewCacheService(App.PreviewCacheRoot);
+    private readonly ObservableCollection<ArchiveLocationViewModel> _locations = [];
     private readonly ObservableCollection<ArchiveListRowViewModel> _archiveRows = [];
     private CancellationTokenSource? _scanCancellation;
     private CancellationTokenSource? _contentsCancellation;
     private CancellationTokenSource? _previewCancellation;
+    private CancellationTokenSource? _cacheBuildCancellation;
+    private Task<PreviewCacheResult>? _cacheBuildTask;
+    private Task? _previewTask;
+    private string? _selectedPreviewArchivePath;
+    private string? _activeCacheArchiveId;
     private bool _initializingLocations;
 
     public ListSnapshotWindow()
@@ -26,7 +32,7 @@ public partial class ListSnapshotWindow : SukiWindow
         LocationSelector.ItemsSource = _locations;
         ArchiveList.ItemsSource = _archiveRows;
         Loaded += Window_Loaded;
-        Closed += (_, _) => CancelPendingLoads();
+        Closed += Window_Closed;
     }
 
     private async void Window_Loaded(object? sender, RoutedEventArgs e)
@@ -45,7 +51,7 @@ public partial class ListSnapshotWindow : SukiWindow
             LocationSelector.SelectedIndex = _locations.Count > 0 ? 0 : -1;
             _initializingLocations = false;
 
-            if (LocationSelector.SelectedItem is ArchiveLocationItem location)
+            if (LocationSelector.SelectedItem is ArchiveLocationViewModel location)
             {
                 await LoadArchivesAsync(location);
             }
@@ -69,12 +75,12 @@ public partial class ListSnapshotWindow : SukiWindow
             return;
         }
 
-        _locations.Add(new ArchiveLocationItem($"{label} - {path}", path));
+        _locations.Add(new ArchiveLocationViewModel($"{label} - {path}", path));
     }
 
     private async void LocationSelector_SelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
-        if (!_initializingLocations && LocationSelector.SelectedItem is ArchiveLocationItem location)
+        if (!_initializingLocations && LocationSelector.SelectedItem is ArchiveLocationViewModel location)
         {
             await LoadArchivesAsync(location);
         }
@@ -86,7 +92,7 @@ public partial class ListSnapshotWindow : SukiWindow
         {
             Title = "Choose an archive folder",
             AllowMultiple = false,
-            SuggestedStartLocation = await TryGetFolderAsync((LocationSelector.SelectedItem as ArchiveLocationItem)?.Directory)
+            SuggestedStartLocation = await TryGetFolderAsync((LocationSelector.SelectedItem as ArchiveLocationViewModel)?.Directory)
         });
 
         var path = folders.Count > 0 ? folders[0].TryGetLocalPath() : null;
@@ -99,7 +105,7 @@ public partial class ListSnapshotWindow : SukiWindow
             string.Equals(item.Directory, path, StringComparison.OrdinalIgnoreCase));
         if (location is null)
         {
-            location = new ArchiveLocationItem($"Manual - {path}", path);
+            location = new ArchiveLocationViewModel($"Manual - {path}", path);
             _locations.Add(location);
         }
 
@@ -130,7 +136,7 @@ public partial class ListSnapshotWindow : SukiWindow
         }
     }
 
-    private async Task LoadArchivesAsync(ArchiveLocationItem location)
+    private async Task LoadArchivesAsync(ArchiveLocationViewModel location)
     {
         _scanCancellation?.Cancel();
         _contentsCancellation?.Cancel();
@@ -226,8 +232,65 @@ public partial class ListSnapshotWindow : SukiWindow
     {
         if (ArchiveList.SelectedItem is ArchiveListRowViewModel { IsArchive: true } archive)
         {
+            await SwitchPreviewArchiveAsync(archive);
             await LoadArchiveContentsAsync(archive);
         }
+    }
+
+    private async Task SwitchPreviewArchiveAsync(ArchiveListRowViewModel archive)
+    {
+        if (string.Equals(_selectedPreviewArchivePath, archive.Path, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        _cacheBuildCancellation?.Cancel();
+        _previewCancellation?.Cancel();
+        if (_previewTask is not null)
+        {
+            try
+            {
+                await _previewTask;
+            }
+            catch
+            {
+            }
+        }
+
+        if (_cacheBuildTask is not null)
+        {
+            try
+            {
+                var result = await _cacheBuildTask;
+                if (!result.IsTooLarge)
+                {
+                    _activeCacheArchiveId = result.ArchiveId;
+                }
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch
+            {
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(_activeCacheArchiveId))
+        {
+            try
+            {
+                await _previewCache.DeleteArchiveAsync(_activeCacheArchiveId);
+            }
+            catch
+            {
+            }
+        }
+
+        _cacheBuildCancellation?.Dispose();
+        _cacheBuildCancellation = null;
+        _cacheBuildTask = null;
+        _activeCacheArchiveId = null;
+        _selectedPreviewArchivePath = archive.Path;
     }
 
     private async Task LoadArchiveContentsAsync(ArchiveListRowViewModel archive)
@@ -291,7 +354,13 @@ public partial class ListSnapshotWindow : SukiWindow
     {
         if (ArchiveContentsTree.SelectedItem is ArchiveContentNode node)
         {
-            await LoadPreviewAsync(node);
+            var task = LoadPreviewAsync(node);
+            _previewTask = task;
+            await task;
+            if (ReferenceEquals(_previewTask, task))
+            {
+                _previewTask = null;
+            }
         }
     }
 
@@ -327,18 +396,39 @@ public partial class ListSnapshotWindow : SukiWindow
             return;
         }
 
+        PreviewCacheResult? cacheResult = null;
         try
         {
-            var content = await Task.Run(
-                () => _archiveReader.ReadFileContentAsync(archive.Path, node.ArchivePath, password, token), token);
+            _cacheBuildCancellation ??= new CancellationTokenSource();
+            _cacheBuildTask ??= _previewCache.EnsureCachedAsync(
+                archive.Path,
+                password,
+                _cacheBuildCancellation.Token);
+            cacheResult = await _cacheBuildTask;
             token.ThrowIfCancellationRequested();
-            var preview = ArchiveContentProjection.CreateTextPreview(content);
+            if (cacheResult.IsTooLarge)
+            {
+                ClearPreview("Archive too large to preview");
+                return;
+            }
+
+            _activeCacheArchiveId = cacheResult.ArchiveId;
+            ShowCacheNotice(cacheResult);
+            var cachedFilePath = Path.Combine(
+                cacheResult.CacheDirectory!,
+                node.ArchivePath.Replace('/', Path.DirectorySeparatorChar).Replace('\\', Path.DirectorySeparatorChar));
+            var preview = await ArchiveContentProjection.CreateTextPreviewAsync(cachedFilePath, cancellationToken: token);
             if (preview.IsSupported)
             {
                 PreviewTextBox.Text = preview.Text;
                 PreviewTextBox.IsVisible = true;
                 PreviewStatusText.IsVisible = false;
                 PreviewTruncatedNotice.IsVisible = preview.IsTruncated;
+            }
+            else
+            {
+                PreviewStatusText.Text = "No preview available";
+                PreviewStatusText.IsVisible = true;
             }
         }
         catch (OperationCanceledException)
@@ -348,7 +438,11 @@ public partial class ListSnapshotWindow : SukiWindow
         {
             if (ReferenceEquals(_previewCancellation, cancellation))
             {
-                ClearPreview("No preview available");
+                ClearPreview("Could not create or read the archive preview.");
+                if (cacheResult is not null)
+                {
+                    ShowCacheNotice(cacheResult);
+                }
             }
         }
         finally
@@ -367,8 +461,71 @@ public partial class ListSnapshotWindow : SukiWindow
         PreviewTextBox.Text = string.Empty;
         PreviewTextBox.IsVisible = false;
         PreviewTruncatedNotice.IsVisible = false;
+        PreviewCacheNotice.Text = string.Empty;
+        PreviewCacheNotice.IsVisible = false;
         PreviewStatusText.Text = message;
         PreviewStatusText.IsVisible = true;
+    }
+
+    private void ShowCacheNotice(PreviewCacheResult result)
+    {
+        if (result.SkippedEntries.Count == 0)
+        {
+            PreviewCacheNotice.Text = string.Empty;
+            PreviewCacheNotice.IsVisible = false;
+            return;
+        }
+
+        PreviewCacheNotice.Text = $"Skipped unsupported archive paths: {string.Join(", ", result.SkippedEntries)}";
+        PreviewCacheNotice.IsVisible = true;
+    }
+
+    private async void Window_Closed(object? sender, EventArgs e)
+    {
+        CancelPendingLoads();
+        if (_previewTask is not null)
+        {
+            try
+            {
+                await _previewTask;
+            }
+            catch
+            {
+            }
+        }
+
+        if (_cacheBuildTask is not null)
+        {
+            try
+            {
+                var result = await _cacheBuildTask;
+                if (!result.IsTooLarge)
+                {
+                    _activeCacheArchiveId = result.ArchiveId;
+                }
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch
+            {
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(_activeCacheArchiveId))
+        {
+            try
+            {
+                await _previewCache.DeleteArchiveAsync(_activeCacheArchiveId);
+            }
+            catch
+            {
+            }
+        }
+
+        _cacheBuildCancellation?.Dispose();
+        _cacheBuildCancellation = null;
+        _cacheBuildTask = null;
     }
 
     private void CancelPendingLoads()
@@ -376,8 +533,7 @@ public partial class ListSnapshotWindow : SukiWindow
         _scanCancellation?.Cancel();
         _contentsCancellation?.Cancel();
         _previewCancellation?.Cancel();
+        _cacheBuildCancellation?.Cancel();
     }
-
-    private sealed record ArchiveLocationItem(string DisplayName, string Directory);
 
 }

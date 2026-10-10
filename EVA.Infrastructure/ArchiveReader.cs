@@ -9,7 +9,7 @@ using Konscious.Security.Cryptography;
 
 namespace EVA.Infrastructure;
 
-public sealed class ArchiveReader : IArchiveReader
+public sealed class ArchiveReader : IArchiveReader, IArchivePayloadExtractor
 {
     private const string Magic = "EVA1";
     private const ushort FormatVersion = 1;
@@ -117,7 +117,7 @@ public sealed class ArchiveReader : IArchiveReader
         var header = ParseHeader(bytes);
         ValidateHeaderConsistency(header, bytes.Length);
         var plaintext = DecryptPayload(bytes, header, password);
-        var payload = await ParsePayloadAsync(plaintext, cancellationToken).ConfigureAwait(false);
+        var payload = await ParsePayloadAsync(plaintext, cancellationToken, targetRelativePath: relativePath).ConfigureAwait(false);
         ValidateManifestIdentity(payload.Manifest, header);
         ValidateManifestStructure(payload.Manifest);
 
@@ -128,6 +128,40 @@ public sealed class ArchiveReader : IArchiveReader
         }
 
         return entry.Content;
+    }
+
+    public async Task<ArchiveExtractionResult> ExtractFilesAsync(
+        string archivePath,
+        string password,
+        string destinationDirectory,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(archivePath))
+        {
+            throw new ArgumentException("Archive path is required.", nameof(archivePath));
+        }
+
+        if (string.IsNullOrWhiteSpace(password))
+        {
+            throw new ArgumentException("Password is required.", nameof(password));
+        }
+
+        if (string.IsNullOrWhiteSpace(destinationDirectory))
+        {
+            throw new ArgumentException("Extraction directory is required.", nameof(destinationDirectory));
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        var bytes = await File.ReadAllBytesAsync(archivePath, cancellationToken).ConfigureAwait(false);
+        var header = ParseHeader(bytes);
+        ValidateHeaderConsistency(header, bytes.Length);
+        var plaintext = DecryptPayload(bytes, header, password);
+        cancellationToken.ThrowIfCancellationRequested();
+        var payload = await ParsePayloadAsync(plaintext, cancellationToken, extractionDirectory: destinationDirectory)
+            .ConfigureAwait(false);
+        ValidateManifestIdentity(payload.Manifest, header);
+        ValidateManifestStructure(payload.Manifest);
+        return new ArchiveExtractionResult(payload.Manifest.ArchiveId, payload.SkippedEntries);
     }
 
     public Task<bool> ValidateArchiveAsync(string archivePath, string password, CancellationToken cancellationToken = default)
@@ -175,15 +209,15 @@ public sealed class ArchiveReader : IArchiveReader
         return plaintext;
     }
 
-    private static async Task<PayloadData> ParsePayloadAsync(byte[] encryptedPayload, CancellationToken cancellationToken)
+    private static async Task<PayloadData> ParsePayloadAsync(
+        byte[] encryptedPayload,
+        CancellationToken cancellationToken,
+        string? extractionDirectory = null,
+        string? targetRelativePath = null)
     {
-        using var compressedStream = new MemoryStream(encryptedPayload);
+        using var compressedStream = new MemoryStream(encryptedPayload, writable: false);
         using var decompressor = new GZipStream(compressedStream, CompressionMode.Decompress);
-        using var output = new MemoryStream();
-        await decompressor.CopyToAsync(output, cancellationToken).ConfigureAwait(false);
-
-        using var input = new MemoryStream(output.ToArray());
-        using var reader = new BinaryReader(input, Encoding.UTF8, leaveOpen: false);
+        using var reader = new BinaryReader(decompressor, Encoding.UTF8, leaveOpen: true);
         var payloadVersion = reader.ReadUInt16();
         if (payloadVersion != 1)
         {
@@ -198,6 +232,7 @@ public sealed class ArchiveReader : IArchiveReader
         }) ?? throw new InvalidOperationException("Archive manifest is missing.");
 
         var files = new List<PayloadFile>();
+        var skippedEntries = new List<string>();
         var fileCount = ReadCount(reader, "file");
         for (var index = 0; index < fileCount; index++)
         {
@@ -212,18 +247,62 @@ public sealed class ArchiveReader : IArchiveReader
                 throw new InvalidOperationException("Payload file content length is invalid.");
             }
 
-            files.Add(new PayloadFile
+            var entry = new FileEntry
             {
-                Entry = new FileEntry
+                RelativePath = relativePath,
+                Operation = operation,
+                FileSize = fileSize,
+                LastModifiedUtc = lastModifiedUtc,
+                Sha256 = sha256
+            };
+            byte[] content = Array.Empty<byte>();
+
+            if (operation != FileOperation.Deleted)
+            {
+                if (extractionDirectory is not null)
                 {
-                    RelativePath = relativePath,
-                    Operation = operation,
-                    FileSize = fileSize,
-                    LastModifiedUtc = lastModifiedUtc,
-                    Sha256 = sha256
-                },
-                Content = ReadExact(reader, (int)contentLength)
-            });
+                    if (TryGetExtractionPath(extractionDirectory, relativePath, out var extractionPath))
+                    {
+                        var parent = Path.GetDirectoryName(extractionPath);
+                        if (!string.IsNullOrEmpty(parent))
+                        {
+                            Directory.CreateDirectory(parent);
+                        }
+
+                        await using var output = new FileStream(
+                            extractionPath,
+                            FileMode.CreateNew,
+                            FileAccess.Write,
+                            FileShare.None,
+                            64 * 1024,
+                            useAsync: true);
+                        if (contentLength > 0)
+                        {
+                            await CopyExactlyAsync(reader.BaseStream, output, contentLength, cancellationToken)
+                                .ConfigureAwait(false);
+                        }
+                    }
+                    else
+                    {
+                        skippedEntries.Add(relativePath);
+                        await SkipExactlyAsync(reader.BaseStream, contentLength, cancellationToken).ConfigureAwait(false);
+                    }
+                }
+                else if (targetRelativePath is not null &&
+                         string.Equals(relativePath, targetRelativePath, StringComparison.OrdinalIgnoreCase))
+                {
+                    if (contentLength > 0)
+                    {
+                        content = ReadExact(reader, (int)contentLength);
+                    }
+                }
+                else
+                {
+                    await SkipExactlyAsync(reader.BaseStream, contentLength, cancellationToken).ConfigureAwait(false);
+                }
+            }
+
+            files.Add(new PayloadFile { Entry = entry, Content = content });
         }
 
         var directories = new List<DirectoryEntry>();
@@ -243,14 +322,112 @@ public sealed class ArchiveReader : IArchiveReader
             throw new InvalidOperationException("Payload end marker is invalid.");
         }
 
-        if (input.Position != input.Length)
+        if (reader.BaseStream.ReadByte() != -1)
         {
             throw new InvalidOperationException("Payload contains trailing data.");
         }
 
         manifest.Files = files.Select(file => file.Entry).ToList();
         manifest.Directories = directories;
-        return new PayloadData(manifest, files);
+        return new PayloadData(manifest, files, skippedEntries);
+    }
+
+    private static async Task CopyExactlyAsync(
+        Stream input,
+        Stream output,
+        long length,
+        CancellationToken cancellationToken)
+    {
+        var buffer = new byte[64 * 1024];
+        var remaining = length;
+        while (remaining > 0)
+        {
+            var requested = (int)Math.Min(buffer.Length, remaining);
+            var read = await input.ReadAsync(buffer.AsMemory(0, requested), cancellationToken).ConfigureAwait(false);
+            if (read == 0)
+            {
+                throw new InvalidOperationException("Payload is truncated.");
+            }
+
+            await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
+            remaining -= read;
+        }
+    }
+
+    private static async Task SkipExactlyAsync(Stream input, long length, CancellationToken cancellationToken)
+    {
+        var buffer = new byte[64 * 1024];
+        var remaining = length;
+        while (remaining > 0)
+        {
+            var requested = (int)Math.Min(buffer.Length, remaining);
+            var read = await input.ReadAsync(buffer.AsMemory(0, requested), cancellationToken).ConfigureAwait(false);
+            if (read == 0)
+            {
+                throw new InvalidOperationException("Payload is truncated.");
+            }
+
+            remaining -= read;
+        }
+    }
+
+    private static bool TryGetExtractionPath(string rootDirectory, string relativePath, out string extractionPath)
+    {
+        extractionPath = string.Empty;
+        if (string.IsNullOrWhiteSpace(relativePath) || Path.IsPathRooted(relativePath) ||
+            relativePath.StartsWith('/') || relativePath.StartsWith('\\'))
+        {
+            throw new InvalidDataException("Archive contains a rooted or empty file path.");
+        }
+
+        var segments = relativePath.Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Length == 0 || segments.Any(segment => segment is "." or ".."))
+        {
+            throw new InvalidDataException("Archive contains an unsafe relative file path.");
+        }
+
+        if (segments.Any(IsInvalidWindowsPathSegment))
+        {
+            return false;
+        }
+
+        var normalized = Path.Combine(segments);
+        var root = Path.GetFullPath(rootDirectory).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        extractionPath = Path.GetFullPath(Path.Combine(root, normalized));
+        var rootPrefix = root + Path.DirectorySeparatorChar;
+        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        if (!extractionPath.StartsWith(rootPrefix, comparison))
+        {
+            throw new InvalidDataException("Archive contains a path outside its extraction directory.");
+        }
+
+        return true;
+    }
+
+    private static bool IsInvalidWindowsPathSegment(string segment)
+    {
+        if (segment.EndsWith('.') || segment.EndsWith(' ') || segment.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 ||
+            segment.IndexOfAny(['<', '>', ':', '"', '/', '\\', '|', '?', '*']) >= 0 ||
+            segment.Any(char.IsControl))
+        {
+            return true;
+        }
+
+        var deviceName = segment.Split('.')[0].TrimEnd(' ', '.');
+        if (deviceName.Equals("CON", StringComparison.OrdinalIgnoreCase) ||
+            deviceName.Equals("PRN", StringComparison.OrdinalIgnoreCase) ||
+            deviceName.Equals("AUX", StringComparison.OrdinalIgnoreCase) ||
+            deviceName.Equals("NUL", StringComparison.OrdinalIgnoreCase) ||
+            deviceName.Equals("CONIN$", StringComparison.OrdinalIgnoreCase) ||
+            deviceName.Equals("CONOUT$", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return deviceName.Length == 4 &&
+               (deviceName.StartsWith("COM", StringComparison.OrdinalIgnoreCase) ||
+                deviceName.StartsWith("LPT", StringComparison.OrdinalIgnoreCase)) &&
+               deviceName[3] is >= '1' and <= '9';
     }
 
     private static FileOperation ReadOperation(BinaryReader reader)
@@ -291,7 +468,10 @@ public sealed class ArchiveReader : IArchiveReader
         return bytes;
     }
 
-    private sealed record PayloadData(ArchiveManifest Manifest, List<PayloadFile> Files);
+    private sealed record PayloadData(
+        ArchiveManifest Manifest,
+        List<PayloadFile> Files,
+        IReadOnlyList<string> SkippedEntries);
 
     private sealed class PayloadFile
     {
