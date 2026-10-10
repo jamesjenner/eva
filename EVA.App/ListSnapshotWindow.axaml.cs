@@ -16,6 +16,7 @@ public partial class ListSnapshotWindow : SukiWindow
     private readonly IArchiveReader _archiveReader = new ArchiveReader();
     private readonly IPreviewCacheService _previewCache = new PreviewCacheService(App.PreviewCacheRoot);
     private readonly PreviewSelectionState<Bitmap> _previewState = new();
+    private readonly ArchiveViewerLoadState _archiveViewerLoadState = new();
     private readonly ObservableCollection<ArchiveLocationViewModel> _locations = [];
     private readonly ObservableCollection<ArchiveListRowViewModel> _archiveRows = [];
     private CancellationTokenSource? _scanCancellation;
@@ -234,6 +235,11 @@ public partial class ListSnapshotWindow : SukiWindow
     {
         if (ArchiveList.SelectedItem is ArchiveListRowViewModel { IsArchive: true } archive)
         {
+            _contentsCancellation?.Cancel();
+            _archiveViewerLoadState.BeginArchiveSelection();
+            ApplyArchiveLoadState();
+            ArchiveContentsTree.ItemsSource = null;
+            ArchiveContentsTree.IsVisible = false;
             ClearPreview("Select a file to preview");
             await SwitchPreviewArchiveAsync(archive);
             await LoadArchiveContentsAsync(archive);
@@ -306,8 +312,8 @@ public partial class ListSnapshotWindow : SukiWindow
 
         ArchiveContentsTree.ItemsSource = null;
         ArchiveContentsTree.IsVisible = false;
-        ContentsStatusText.Text = "Loading archive contents...";
-        ContentsStatusText.IsVisible = true;
+        _archiveViewerLoadState.BeginArchiveSelection();
+        ApplyArchiveLoadState();
         ContentsLoadingIndicator.IsVisible = true;
         ClearPreview("Select a file to preview");
 
@@ -316,12 +322,13 @@ public partial class ListSnapshotWindow : SukiWindow
             var password = App.PasswordStore.GetPassword();
             if (string.IsNullOrWhiteSpace(password))
             {
-                ContentsStatusText.Text = "No password is stored.";
+                _archiveViewerLoadState.MarkArchiveFailed("No password is stored.");
+                ApplyArchiveLoadState();
                 return;
             }
 
             var manifest = await Task.Run(
-                () => _archiveReader.ReadManifestAsync(archive.Path, password, token), token);
+                () => ArchiveManifestLoader.LoadAsync(archive.Path, password, _archiveReader, token), token);
             token.ThrowIfCancellationRequested();
             archive.SetManual(manifest.IsManual);
             var tree = await Task.Run(
@@ -329,16 +336,18 @@ public partial class ListSnapshotWindow : SukiWindow
             token.ThrowIfCancellationRequested();
             ArchiveContentsTree.ItemsSource = tree;
             ArchiveContentsTree.IsVisible = true;
-            ContentsStatusText.IsVisible = false;
+            _archiveViewerLoadState.MarkArchiveLoaded();
+            ApplyArchiveLoadState();
         }
         catch (OperationCanceledException)
         {
         }
-        catch
+        catch (Exception exception)
         {
             if (ReferenceEquals(_contentsCancellation, cancellation))
             {
-                ContentsStatusText.Text = "This archive could not be decrypted or read.";
+            _archiveViewerLoadState.MarkArchiveFailed(ArchiveLoadErrorMessages.ForException(exception));
+            ApplyArchiveLoadState();
             }
         }
         finally
@@ -532,6 +541,14 @@ public partial class ListSnapshotWindow : SukiWindow
         PreviewCacheNotice.IsVisible = false;
         PreviewStatusText.Text = message;
         PreviewStatusText.IsVisible = true;
+    }
+
+    private void ApplyArchiveLoadState()
+    {
+        ContentsStatusText.Text = _archiveViewerLoadState.ContentsMessage;
+        ContentsStatusText.IsVisible = _archiveViewerLoadState.ContentsStatus == ArchiveContentsLoadStatus.Loading;
+        ContentsErrorText.Text = _archiveViewerLoadState.ContentsMessage;
+        ContentsErrorText.IsVisible = _archiveViewerLoadState.ContentsStatus == ArchiveContentsLoadStatus.Failed;
     }
 
     private void SetPreviewFailure(string reason)

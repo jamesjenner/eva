@@ -114,7 +114,7 @@ public sealed class BackupOrchestratorTests : IDisposable
         Directory.CreateDirectory(destination);
 
         var scanner = CreateScanner(root, destination);
-        var orchestrator = new BackupOrchestrator(root, destination, null, "Password123!", scanner: scanner, writer: new ArchiveWriter(), stateIndex: new LocalScanStateIndex(root, CreateTempDirectory()));
+        var orchestrator = new BackupOrchestrator(root, destination, null, "Password123!", scanner: scanner, writer: new ArchiveWriter(), logger: new TestEventLogger(), stateIndex: new LocalScanStateIndex(root, CreateTempDirectory()));
 
         var result = await orchestrator.RunOnceAsync(DateTimeOffset.UtcNow, manualSnapshot: false, CancellationToken.None);
 
@@ -131,7 +131,7 @@ public sealed class BackupOrchestratorTests : IDisposable
         await File.WriteAllTextAsync(Path.Combine(root, "a.txt"), "alpha");
 
         var scanner = CreateScanner(root, destination);
-        var orchestrator = new BackupOrchestrator(root, destination, null, "Password123!", scanner: scanner, writer: new ArchiveWriter(), stateIndex: new LocalScanStateIndex(root, CreateTempDirectory()));
+        var orchestrator = new BackupOrchestrator(root, destination, null, "Password123!", scanner: scanner, writer: new ArchiveWriter(), logger: new TestEventLogger(), stateIndex: new LocalScanStateIndex(root, CreateTempDirectory()));
 
         var result = await orchestrator.RunOnceAsync(new DateTimeOffset(2026, 8, 29, 12, 0, 0, TimeSpan.Zero), manualSnapshot: false, CancellationToken.None);
 
@@ -148,7 +148,7 @@ public sealed class BackupOrchestratorTests : IDisposable
         await File.WriteAllTextAsync(Path.Combine(root, "a.txt"), "alpha");
 
         var scanner = CreateScanner(root, destination);
-        var orchestrator = new BackupOrchestrator(root, destination, null, "Password123!", scanner: scanner, writer: new ArchiveWriter(), stateIndex: new LocalScanStateIndex(root, CreateTempDirectory()));
+        var orchestrator = new BackupOrchestrator(root, destination, null, "Password123!", scanner: scanner, writer: new ArchiveWriter(), logger: new TestEventLogger(), stateIndex: new LocalScanStateIndex(root, CreateTempDirectory()));
 
         var result = await orchestrator.RunOnceAsync(new DateTimeOffset(2026, 8, 30, 12, 0, 0, TimeSpan.Zero), false, CancellationToken.None);
 
@@ -164,7 +164,7 @@ public sealed class BackupOrchestratorTests : IDisposable
         Directory.CreateDirectory(destination);
 
         var scanner = CreateScanner(root, destination);
-        var orchestrator = new BackupOrchestrator(root, destination, null, "Password123!", scanner: scanner, writer: new ArchiveWriter(), stateIndex: new LocalScanStateIndex(root, CreateTempDirectory()));
+        var orchestrator = new BackupOrchestrator(root, destination, null, "Password123!", scanner: scanner, writer: new ArchiveWriter(), logger: new TestEventLogger(), stateIndex: new LocalScanStateIndex(root, CreateTempDirectory()));
 
         var result = await orchestrator.RunOnceAsync(DateTimeOffset.UtcNow, manualSnapshot: true, CancellationToken.None);
 
@@ -204,7 +204,7 @@ public sealed class BackupOrchestratorTests : IDisposable
 
         var scanner = CreateScanner(root, destination, secondary);
         var retryQueue = new SecondaryDestinationRetryQueue(Path.Combine(root, "queue.json"));
-        var orchestrator = new BackupOrchestrator(root, destination, secondary, "Password123!", scanner: scanner, writer: new ArchiveWriter(), retryQueue: retryQueue, stateIndex: new LocalScanStateIndex(root, CreateTempDirectory()));
+        var orchestrator = new BackupOrchestrator(root, destination, secondary, "Password123!", scanner: scanner, writer: new ArchiveWriter(), logger: new TestEventLogger(), retryQueue: retryQueue, stateIndex: new LocalScanStateIndex(root, CreateTempDirectory()));
 
         var result = await orchestrator.RunOnceAsync(DateTimeOffset.UtcNow, false, CancellationToken.None);
         var pending = await retryQueue.GetPendingAsync();
@@ -224,7 +224,7 @@ public sealed class BackupOrchestratorTests : IDisposable
 
         var index = new LocalScanStateIndex(root, CreateTempDirectory());
         var scanner = CreateScanner(root, destination, index: index);
-        var orchestrator = new BackupOrchestrator(root, destination, null, "Password123!", scanner: scanner, writer: new ArchiveWriter(), stateIndex: index);
+        var orchestrator = new BackupOrchestrator(root, destination, null, "Password123!", scanner: scanner, writer: new ArchiveWriter(), logger: new TestEventLogger(), stateIndex: index);
 
         var result = await orchestrator.RunOnceAsync(DateTimeOffset.UtcNow, false, CancellationToken.None);
         var snapshot = await index.LoadAsync();
@@ -244,7 +244,7 @@ public sealed class BackupOrchestratorTests : IDisposable
         var index = new LocalScanStateIndex(root, stateDirectory);
         await File.WriteAllTextAsync(Path.Combine(root, "a.txt"), "alpha");
 
-        var orchestrator = new BackupOrchestrator(root, destination, null, "Password123!", stateIndex: index);
+        var orchestrator = new BackupOrchestrator(root, destination, null, "Password123!", logger: new TestEventLogger(), stateIndex: index);
         var fullResult = await orchestrator.RunOnceAsync(new DateTimeOffset(2026, 8, 30, 12, 0, 0, TimeSpan.Zero), false, CancellationToken.None);
 
         Assert.Equal(ArchiveType.Full, fullResult.ArchiveType);
@@ -271,13 +271,13 @@ public sealed class BackupOrchestratorTests : IDisposable
         var stateDirectory = CreateTempDirectory();
         await File.WriteAllTextAsync(Path.Combine(root, "a.txt"), "alpha");
 
-        var firstOrchestrator = new BackupOrchestrator(root, destination, null, "Password123!", stateIndex: new LocalScanStateIndex(root, stateDirectory));
+        var firstOrchestrator = new BackupOrchestrator(root, destination, null, "Password123!", logger: new TestEventLogger(), stateIndex: new LocalScanStateIndex(root, stateDirectory));
         var fullResult = await firstOrchestrator.RunOnceAsync(new DateTimeOffset(2026, 8, 30, 12, 0, 0, TimeSpan.Zero), false, CancellationToken.None);
         var reader = new ArchiveReader();
         var fullManifest = await reader.ReadManifestAsync(fullResult.ArchivePath!, "Password123!");
 
         await File.WriteAllTextAsync(Path.Combine(root, "a.txt"), "updated after restart");
-        var restartedOrchestrator = new BackupOrchestrator(root, destination, null, "Password123!", stateIndex: new LocalScanStateIndex(root, stateDirectory));
+        var restartedOrchestrator = new BackupOrchestrator(root, destination, null, "Password123!", logger: new TestEventLogger(), stateIndex: new LocalScanStateIndex(root, stateDirectory));
         var incrementalResult = await restartedOrchestrator.RunOnceAsync(new DateTimeOffset(2026, 8, 30, 13, 0, 0, TimeSpan.Zero), false, CancellationToken.None);
         var incrementalManifest = await reader.ReadManifestAsync(incrementalResult.ArchivePath!, "Password123!");
 

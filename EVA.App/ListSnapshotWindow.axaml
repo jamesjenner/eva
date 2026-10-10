@@ -106,6 +106,10 @@
                                    Text="Select an archive"
                                    TextWrapping="Wrap"
                                    Opacity="0.75" />
+                        <TextBlock x:Name="ContentsErrorText"
+                                   IsVisible="False"
+                                   Foreground="{DynamicResource EVAErrorBrush}"
+                                   TextWrapping="Wrap" />
                         <TreeView x:Name="ArchiveContentsTree"
                                   IsVisible="False"
                                   SelectionChanged="ArchiveContentsTree_SelectionChanged">

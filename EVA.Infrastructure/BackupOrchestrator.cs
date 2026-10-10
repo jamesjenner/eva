@@ -12,12 +12,14 @@ public sealed class BackupRunResult
     public bool SecondaryCopyQueued { get; set; }
     public bool Success { get; set; }
     public string? Error { get; set; }
+    public string? FailureType { get; set; }
     public IReadOnlyCollection<FileEntry> UnstableFiles { get; set; } = Array.Empty<FileEntry>();
     public DateTimeOffset? LastSuccessfulBackupUtc { get; set; }
 }
 
 public sealed class BackupOrchestrator
 {
+    public const long DefaultMaxFullBackupSourceBytes = 512L * 1024 * 1024;
     private readonly string _sourceDirectory;
     private readonly string _primaryArchiveDirectory;
     private readonly string? _secondaryArchiveDirectory;
@@ -32,6 +34,7 @@ public sealed class BackupOrchestrator
     private readonly SecondaryDestinationRetryQueue _retryQueue;
     private readonly IRetentionEvaluator? _retentionEvaluator;
     private readonly string _sourceId;
+    private readonly long _maxFullBackupSourceBytes;
     private string _currentChainId = Guid.NewGuid().ToString("N");
     private string? _lastArchiveId;
     private DateTimeOffset? _lastSuccessfulBackupUtc;
@@ -51,7 +54,9 @@ public sealed class BackupOrchestrator
         BackupScheduler? scheduler = null,
         SecondaryDestinationRetryQueue? retryQueue = null,
         IRetentionEvaluator? retentionEvaluator = null,
-        string? sourceId = null)
+        string? sourceId = null,
+        long maxFullBackupSourceBytes = DefaultMaxFullBackupSourceBytes,
+        string? logDirectory = null)
     {
         if (string.IsNullOrWhiteSpace(sourceDirectory))
         {
@@ -72,6 +77,8 @@ public sealed class BackupOrchestrator
         _primaryArchiveDirectory = Path.GetFullPath(primaryArchiveDirectory);
         _secondaryArchiveDirectory = string.IsNullOrWhiteSpace(secondaryArchiveDirectory) ? null : Path.GetFullPath(secondaryArchiveDirectory);
         _password = password;
+        ArgumentOutOfRangeException.ThrowIfNegative(maxFullBackupSourceBytes);
+        _maxFullBackupSourceBytes = maxFullBackupSourceBytes;
         var excludedPaths = new List<string>();
         if (!string.IsNullOrWhiteSpace(_primaryArchiveDirectory))
         {
@@ -86,7 +93,10 @@ public sealed class BackupOrchestrator
         _writer = writer ?? new ArchiveWriter(_sourceDirectory);
         _reader = reader ?? new ArchiveReader();
         _validator = validator ?? new ArchiveValidator();
-        _logger = logger ?? new NullEventLogger();
+        _logger = logger ?? new FileEventLogger(
+            logDirectory ?? Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "EVA", "logs"),
+            sensitiveValues: [password]);
         _stateIndex = stateIndex ?? new LocalScanStateIndex(_sourceDirectory);
         _scheduler = scheduler ?? new BackupScheduler();
         _retryQueue = retryQueue ?? new SecondaryDestinationRetryQueue();
@@ -111,6 +121,32 @@ public sealed class BackupOrchestrator
     }
 
     public async Task<BackupRunResult> RunOnceAsync(
+        DateTimeOffset? currentCheckTime = null,
+        bool manualSnapshot = false,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return await RunOnceCoreAsync(currentCheckTime, manualSnapshot, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            _logger.LogException(exception, $"Backup run failed for {_sourceDirectory}");
+            return new BackupRunResult
+            {
+                Success = false,
+                Error = exception.Message,
+                FailureType = exception.GetType().Name,
+                LastSuccessfulBackupUtc = _lastSuccessfulBackupUtc
+            };
+        }
+    }
+
+    private async Task<BackupRunResult> RunOnceCoreAsync(
         DateTimeOffset? currentCheckTime = null,
         bool manualSnapshot = false,
         CancellationToken cancellationToken = default)
@@ -161,6 +197,27 @@ public sealed class BackupOrchestrator
         if (archiveType == ArchiveType.Full)
         {
             _currentChainId = Guid.NewGuid().ToString("N");
+        }
+
+        if (archiveType == ArchiveType.Full)
+        {
+            var fullBackupEntries = scanResult.StableFiles.Concat(scanResult.ConfirmedChanges);
+            var totalSourceBytes = SumFileSizesCapped(fullBackupEntries, _maxFullBackupSourceBytes);
+            if (totalSourceBytes > _maxFullBackupSourceBytes)
+            {
+                var message = $"Full backup not created: source size exceeds the {_maxFullBackupSourceBytes}-byte limit.";
+                _logger.LogError(message);
+                return new BackupRunResult
+                {
+                    CreatedArchive = false,
+                    Success = false,
+                    Error = message,
+                    FailureType = "SourceSizeLimitExceeded",
+                    ArchiveType = archiveType,
+                    UnstableFiles = scanResult.UnstableFiles.ToList(),
+                    LastSuccessfulBackupUtc = _lastSuccessfulBackupUtc
+                };
+            }
         }
 
         var manifest = CreateManifest(checkTime, archiveType, _currentChainId, manualSnapshot);
@@ -227,11 +284,34 @@ public sealed class BackupOrchestrator
                 CreatedArchive = false,
                 Success = false,
                 Error = ex.Message,
+                FailureType = ex.GetType().Name,
                 ArchiveType = archiveType,
                 UnstableFiles = scanResult.UnstableFiles.ToList(),
                 LastSuccessfulBackupUtc = _lastSuccessfulBackupUtc
             };
         }
+    }
+
+    private static long SumFileSizesCapped(IEnumerable<FileEntry> entries, long limit)
+    {
+        long total = 0;
+        foreach (var entry in entries)
+        {
+            if (entry.Operation == FileOperation.Deleted)
+            {
+                continue;
+            }
+
+            var size = Math.Max(0, entry.FileSize);
+            if (size > limit - total)
+            {
+                return limit == long.MaxValue ? long.MaxValue : limit + 1;
+            }
+
+            total += size;
+        }
+
+        return total;
     }
 
     public async Task StartAsync(
@@ -371,11 +451,4 @@ public sealed class BackupOrchestrator
         return new DateTimeOffset(truncatedTicks, TimeSpan.Zero);
     }
 
-    private sealed class NullEventLogger : IEventLogger
-    {
-        public void LogInformation(string message) { }
-        public void LogWarning(string message) { }
-        public void LogError(string message) { }
-        public void LogException(Exception exception, string message) { }
-    }
 }

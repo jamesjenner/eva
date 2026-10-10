@@ -13,19 +13,23 @@ public partial class BackupStatusWindow : SukiWindow
     public BackupStatusWindow(
         IEnumerable<string> unstableFilePaths,
         DateTimeOffset? lastSuccessfulBackup,
-        DateTimeOffset nextScheduledRun)
+        DateTimeOffset nextScheduledRun,
+        string? failureMessage = null)
     {
         InitializeComponent();
-        Update(unstableFilePaths, lastSuccessfulBackup, nextScheduledRun);
+        Update(unstableFilePaths, lastSuccessfulBackup, nextScheduledRun, failureMessage);
         Closed += (_, _) => App.StatusWindow = null;
     }
 
     public void Update(
         IEnumerable<string> unstableFilePaths,
         DateTimeOffset? lastSuccessfulBackup,
-        DateTimeOffset nextScheduledRun)
+        DateTimeOffset nextScheduledRun,
+        string? failureMessage = null)
     {
         var paths = unstableFilePaths.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        FailureMessageText.Text = failureMessage ?? string.Empty;
+        FailureMessageText.IsVisible = failureMessage is not null;
         StatusSummaryText.Text = $"{paths.Count} file{(paths.Count == 1 ? "" : "s")} could not be read and " +
                                  $"{(paths.Count == 1 ? "was" : "were")} skipped.";
         LastSuccessfulBackupText.Text = lastSuccessfulBackup.HasValue

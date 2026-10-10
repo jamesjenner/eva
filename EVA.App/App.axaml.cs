@@ -27,6 +27,8 @@ public partial class App : Application
     private ListSnapshotWindow? _listSnapshotWindow;
     private RestoreWindow? _restoreWindow;
     private OptionsWindow? _optionsWindow;
+    private readonly BackupFailurePresentation _backupFailurePresentation = new();
+    private NativeMenuItem? _lastBackupFailureMenuItem;
     private static TrayIcon? _trayIcon;
     private SukiTheme? _theme;
     private static TimeSpan _orchestratorInterval = TimeSpan.FromMinutes(15);
@@ -112,7 +114,9 @@ public partial class App : Application
         _ = Task.Run(() => orchestrator.StartAsync(
             _orchestratorInterval,
             OrchestratorCancellation.Token,
-            result => HandleBackupResultAsync(result, _orchestratorInterval)));
+            result => _currentApp is { } app
+                ? app.HandleBackupResultAsync(result, _orchestratorInterval)
+                : Task.CompletedTask));
     }
 
     public static async Task RefreshOrchestratorAsync(BackupConfiguration config)
@@ -208,6 +212,13 @@ public partial class App : Application
         optionsItem.Click += (_, _) => ShowOptions();
         menu.Add(optionsItem);
 
+        _lastBackupFailureMenuItem = new NativeMenuItem
+        {
+            Header = "Last backup: no failures",
+            IsEnabled = false
+        };
+        menu.Add(_lastBackupFailureMenuItem);
+
         menu.Add(new NativeMenuItemSeparator());
 
         var exitItem = new NativeMenuItem { Header = "Exit" };
@@ -262,7 +273,10 @@ public partial class App : Application
         try
         {
             var result = await Orchestrator.RunOnceAsync(manualSnapshot: true, cancellationToken: CancellationToken.None);
-            await HandleBackupResultAsync(result, _orchestratorInterval);
+            if (_currentApp is { } app)
+            {
+                await app.HandleBackupResultAsync(result, _orchestratorInterval);
+            }
         }
         catch
         {
@@ -343,10 +357,38 @@ public partial class App : Application
         return true;
     }
 
-    private static Task HandleBackupResultAsync(BackupRunResult result, TimeSpan interval)
+    private Task HandleBackupResultAsync(BackupRunResult result, TimeSpan interval)
     {
         return Dispatcher.UIThread.InvokeAsync(() =>
         {
+            _backupFailurePresentation.Apply(result);
+            var failureMessage = _backupFailurePresentation.Message;
+            if (_lastBackupFailureMenuItem is not null)
+            {
+                _lastBackupFailureMenuItem.Header = failureMessage is null
+                    ? "Last backup: no failures"
+                    : $"Last backup failed: {failureMessage}";
+                _lastBackupFailureMenuItem.IsEnabled = failureMessage is not null;
+            }
+
+            if (_trayIcon is not null)
+            {
+                _trayIcon.ToolTipText = failureMessage is null
+                    ? "EVA"
+                    : $"EVA - Backup failed: {failureMessage}";
+            }
+
+            if (failureMessage is not null)
+            {
+                var failureNextRun = DateTimeOffset.UtcNow + interval;
+                ShowOrUpdateStatusWindow(
+                    result.UnstableFiles.Select(file => file.RelativePath),
+                    result.LastSuccessfulBackupUtc,
+                    failureNextRun,
+                    failureMessage);
+                return;
+            }
+
             if (result.UnstableFiles.Count > 0)
             {
                 var paths = result.UnstableFiles.Select(file => file.RelativePath);
@@ -363,15 +405,16 @@ public partial class App : Application
     private static void ShowOrUpdateStatusWindow(
         IEnumerable<string> unstableFilePaths,
         DateTimeOffset? lastSuccessfulBackup,
-        DateTimeOffset nextScheduledRun)
+        DateTimeOffset nextScheduledRun,
+        string? failureMessage = null)
     {
         if (StatusWindow is not null)
         {
-            StatusWindow.Update(unstableFilePaths, lastSuccessfulBackup, nextScheduledRun);
+            StatusWindow.Update(unstableFilePaths, lastSuccessfulBackup, nextScheduledRun, failureMessage);
         }
         else
         {
-            StatusWindow = new BackupStatusWindow(unstableFilePaths, lastSuccessfulBackup, nextScheduledRun);
+            StatusWindow = new BackupStatusWindow(unstableFilePaths, lastSuccessfulBackup, nextScheduledRun, failureMessage);
             StatusWindow.Closed += (_, _) => StatusWindow = null;
             StatusWindow.Show();
         }

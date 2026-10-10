@@ -2,8 +2,9 @@
         xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:suki="clr-namespace:SukiUI.Controls;assembly=SukiUI"
+        xmlns:app="using:EVA.App"
         x:Class="EVA.App.BackupStatusWindow"
-        x:CompileBindings="False"
+        x:CompileBindings="True"
         Title="Backup Status"
         Width="480"
         Height="380"
@@ -15,11 +16,16 @@
         ShowActivated="False"
         Topmost="False"
         CanResize="False">
-    <Grid Margin="16" RowDefinitions="Auto,Auto,Auto,Auto,*,Auto" RowSpacing="10">
+    <Grid Margin="16" RowDefinitions="Auto,Auto,Auto,Auto,Auto,*,Auto" RowSpacing="10">
         <TextBlock Grid.Row="0" Text="Backup Status" FontSize="20" FontWeight="SemiBold" />
-        <TextBlock x:Name="StatusSummaryText" Grid.Row="1" TextWrapping="Wrap" />
+        <TextBlock x:Name="FailureMessageText"
+                   Grid.Row="1"
+                   IsVisible="False"
+                   Foreground="{DynamicResource EVAErrorBrush}"
+                   TextWrapping="Wrap" />
+        <TextBlock x:Name="StatusSummaryText" Grid.Row="2" TextWrapping="Wrap" />
 
-        <Border Grid.Row="2" Classes="card" Padding="10">
+        <Border Grid.Row="3" Classes="card" Padding="10">
             <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="*,Auto" RowSpacing="6" ColumnSpacing="12">
                 <TextBlock Grid.Row="0" Grid.Column="0" Text="Last successful backup" />
                 <TextBlock x:Name="LastSuccessfulBackupText" Grid.Row="0" Grid.Column="1" HorizontalAlignment="Right" />
@@ -28,12 +34,12 @@
             </Grid>
         </Border>
 
-        <TextBlock Grid.Row="3" Text="Skipped files" FontWeight="SemiBold" />
-        <Border Grid.Row="4" Classes="card" Padding="8">
+        <TextBlock Grid.Row="4" Text="Skipped files" FontWeight="SemiBold" />
+        <Border Grid.Row="5" Classes="card" Padding="8">
             <ScrollViewer VerticalScrollBarVisibility="Auto">
                 <ItemsControl x:Name="UnstableFilesList">
                     <ItemsControl.ItemTemplate>
-                        <DataTemplate>
+                        <DataTemplate x:DataType="x:String">
                             <TextBlock Text="{Binding}"
                                        Foreground="{StaticResource EVAWarningBrush}"
                                        TextWrapping="Wrap"
@@ -44,7 +50,7 @@
             </ScrollViewer>
         </Border>
 
-        <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+        <StackPanel Grid.Row="6" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
             <Button x:Name="BackUpNowButton" Content="Back Up Now" Padding="12,6" Click="BackUpNow_Click" />
             <Button Content="Close" Padding="12,6" Click="Close_Click" />
         </StackPanel>
