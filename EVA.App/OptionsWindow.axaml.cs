@@ -16,14 +16,14 @@ public partial class OptionsWindow : SukiWindow
     private readonly PasswordStore _passwordStore = new();
     private readonly ConfigStore _configStore;
     private BackupConfiguration _configuration = BackupConfiguration.Default();
-    private static ISukiDialogManager DialogManager = new SukiDialogManager();
+    private readonly ISukiDialogManager _dialogManager = new SukiDialogManager();
 
     public OptionsWindow()
     {
         InitializeComponent();
         _configStore = new ConfigStore(passwordStore: _passwordStore);
         Loaded += OnLoaded;
-        DialogHost.Manager = DialogManager;
+        DialogHost.Manager = _dialogManager;
     }
 
     private async void OnLoaded(object? sender, RoutedEventArgs e)
@@ -62,7 +62,7 @@ public partial class OptionsWindow : SukiWindow
             var config = BuildConfigurationFromForm();
             if (!App.TryValidateConfig(config, out var validationError))
             {
-                OptionsWindow.DialogManager.CreateDialog()
+                _dialogManager.CreateDialog()
                     .WithTitle("Validation error")
                     .WithContent(validationError ?? "The configuration is invalid.")
                     .OfType(NotificationType.Error)
@@ -79,7 +79,7 @@ public partial class OptionsWindow : SukiWindow
         catch (Exception ex)
         {
             // await ShowErrorAsync(ex.Message);
-            OptionsWindow.DialogManager.CreateDialog()
+            _dialogManager.CreateDialog()
                 .WithTitle("An Unexpected Error Occured")
                 .WithContent(ex.Message)
                 .OfType(NotificationType.Error)

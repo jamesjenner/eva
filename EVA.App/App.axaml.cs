@@ -23,6 +23,10 @@ public partial class App : Application
     public static CancellationTokenSource? OrchestratorCancellation { get; private set; }
     public static BackupStatusWindow? StatusWindow { get; internal set; }
 
+    private static App? _currentApp;
+    private ListSnapshotWindow? _listSnapshotWindow;
+    private RestoreWindow? _restoreWindow;
+    private OptionsWindow? _optionsWindow;
     private static TrayIcon? _trayIcon;
     private SukiTheme? _theme;
     private static TimeSpan _orchestratorInterval = TimeSpan.FromMinutes(15);
@@ -34,6 +38,7 @@ public partial class App : Application
 
     public override void OnFrameworkInitializationCompleted()
     {
+        _currentApp = this;
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
@@ -46,8 +51,7 @@ public partial class App : Application
 
             if (IsFirstRun())
             {
-                var optionsWindow = new OptionsWindow();
-                optionsWindow.Show();
+                ShowOptions();
             }
             else
             {
@@ -75,13 +79,11 @@ public partial class App : Application
                 return;
             }
 
-            var options = new OptionsWindow();
-            options.Show();
+            _currentApp?.ShowOptions();
         }
         catch
         {
-            var options = new OptionsWindow();
-            options.Show();
+            _currentApp?.ShowOptions();
         }
     }
 
@@ -90,8 +92,7 @@ public partial class App : Application
         var password = PasswordStore.GetPassword();
         if (string.IsNullOrWhiteSpace(password))
         {
-            var options = new OptionsWindow();
-            options.Show();
+            _currentApp?.ShowOptions();
             return;
         }
 
@@ -223,8 +224,22 @@ public partial class App : Application
 
     private void ShowOptions()
     {
-        var optionsWindow = new OptionsWindow();
-        optionsWindow.Show();
+        Dispatcher.UIThread.VerifyAccess();
+        if (ActivateIfOpen(_optionsWindow))
+        {
+            return;
+        }
+
+        var window = new OptionsWindow();
+        _optionsWindow = window;
+        window.Closed += (_, _) =>
+        {
+            if (ReferenceEquals(_optionsWindow, window))
+            {
+                _optionsWindow = null;
+            }
+        };
+        window.Show();
     }
 
     private void Shutdown()
@@ -254,19 +269,50 @@ public partial class App : Application
         }
     }
 
-    private static void ShowListSnapshots()
+    private void ShowListSnapshots()
     {
+        Dispatcher.UIThread.VerifyAccess();
+        if (ActivateIfOpen(_listSnapshotWindow))
+        {
+            return;
+        }
+
         var window = new ListSnapshotWindow();
+        _listSnapshotWindow = window;
+        window.Closed += (_, _) =>
+        {
+            if (ReferenceEquals(_listSnapshotWindow, window))
+            {
+                _listSnapshotWindow = null;
+            }
+        };
         window.Show();
     }
 
-    private static void ShowRestoreSnapshot()
+    private void ShowRestoreSnapshot()
     {
         ShowListSnapshots();
     }
 
     internal static void ShowRestoreSnapshot(string archivePath)
     {
+        Dispatcher.UIThread.VerifyAccess();
+        if (_currentApp is not { } app)
+        {
+            return;
+        }
+
+        app.ShowRestoreWindow(archivePath);
+    }
+
+    private void ShowRestoreWindow(string archivePath)
+    {
+        Dispatcher.UIThread.VerifyAccess();
+        if (ActivateIfOpen(_restoreWindow))
+        {
+            return;
+        }
+
         var password = PasswordStore.GetPassword();
         if (string.IsNullOrWhiteSpace(password))
         {
@@ -274,7 +320,27 @@ public partial class App : Application
         }
 
         var window = new RestoreWindow(archivePath, password);
+        _restoreWindow = window;
+        window.Closed += (_, _) =>
+        {
+            if (ReferenceEquals(_restoreWindow, window))
+            {
+                _restoreWindow = null;
+            }
+        };
         window.Show();
+    }
+
+    private static bool ActivateIfOpen(Window? window)
+    {
+        if (window is null)
+        {
+            return false;
+        }
+
+        window.WindowState = WindowState.Normal;
+        window.Activate();
+        return true;
     }
 
     private static Task HandleBackupResultAsync(BackupRunResult result, TimeSpan interval)
