@@ -135,6 +135,7 @@ public sealed class ArchiveContentProjectionTests : IDisposable
     [Fact]
     public void ArchiveRowViewModelExposesDisplayTextAndTypeLabel()
     {
+        var headingRow = ArchiveListRowViewModel.ForHeader("Today");
         var fullRow = ArchiveListRowViewModel.ForArchive(
             "2026_10_10_120000_full_01.eva",
             new ArchiveHeader
@@ -150,6 +151,9 @@ public sealed class ArchiveContentProjectionTests : IDisposable
                 CreatedUtc = new DateTimeOffset(2026, 10, 10, 12, 0, 0, TimeSpan.Zero)
             });
 
+        Assert.True(headingRow.IsHeader);
+        Assert.False(headingRow.IsSelectable);
+        Assert.Equal("Today", headingRow.Heading);
         Assert.False(fullRow.IsHeader);
         Assert.True(fullRow.IsSelectable);
         Assert.NotEmpty(fullRow.TimestampLabel);
