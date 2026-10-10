@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using Avalonia.Media.Imaging;
 using Avalonia.Platform.Storage;
 using EVA.Core;
 using EVA.Core.Interfaces;
@@ -14,6 +15,7 @@ public partial class ListSnapshotWindow : SukiWindow
 {
     private readonly IArchiveReader _archiveReader = new ArchiveReader();
     private readonly IPreviewCacheService _previewCache = new PreviewCacheService(App.PreviewCacheRoot);
+    private readonly PreviewSelectionState<Bitmap> _previewState = new();
     private readonly ObservableCollection<ArchiveLocationViewModel> _locations = [];
     private readonly ObservableCollection<ArchiveListRowViewModel> _archiveRows = [];
     private CancellationTokenSource? _scanCancellation;
@@ -232,6 +234,7 @@ public partial class ListSnapshotWindow : SukiWindow
     {
         if (ArchiveList.SelectedItem is ArchiveListRowViewModel { IsArchive: true } archive)
         {
+            ClearPreview("Select a file to preview");
             await SwitchPreviewArchiveAsync(archive);
             await LoadArchiveContentsAsync(archive);
         }
@@ -417,6 +420,67 @@ public partial class ListSnapshotWindow : SukiWindow
             var cachedFilePath = Path.Combine(
                 cacheResult.CacheDirectory!,
                 node.ArchivePath.Replace('/', Path.DirectorySeparatorChar).Replace('\\', Path.DirectorySeparatorChar));
+
+            if (ImagePreviewInspection.IsSupportedExtension(cachedFilePath))
+            {
+                var inspection = await ImagePreviewInspection.InspectFileAsync(cachedFilePath, token);
+                if (!inspection.IsSupported)
+                {
+                    SetPreviewFailure(inspection.Reason);
+                    ShowCacheNotice(cacheResult);
+                    return;
+                }
+
+                Bitmap bitmap;
+                try
+                {
+                    bitmap = await Task.Run(() =>
+                    {
+                        token.ThrowIfCancellationRequested();
+                        using var stream = new FileStream(
+                            cachedFilePath,
+                            FileMode.Open,
+                            FileAccess.Read,
+                            FileShare.Read);
+                        return new Bitmap(stream);
+                    }, token);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch
+                {
+                    SetPreviewFailure("Image decoding failed.");
+                    ShowCacheNotice(cacheResult);
+                    return;
+                }
+
+                if (token.IsCancellationRequested)
+                {
+                    bitmap.Dispose();
+                    token.ThrowIfCancellationRequested();
+                }
+
+                if (!ImagePreviewInspection.IsWithinPixelLimit(bitmap.PixelSize.Width, bitmap.PixelSize.Height))
+                {
+                    bitmap.Dispose();
+                    SetPreviewFailure("Decoded image exceeds the 50 megapixel preview limit.");
+                    ShowCacheNotice(cacheResult);
+                    return;
+                }
+
+                PreviewTextBox.Text = string.Empty;
+                PreviewTextBox.IsVisible = false;
+                PreviewTruncatedNotice.IsVisible = false;
+                _previewState.SetImage(bitmap);
+                PreviewImage.Source = bitmap;
+                PreviewImage.IsVisible = true;
+                PreviewStatusText.IsVisible = false;
+                ShowCacheNotice(cacheResult);
+                return;
+            }
+
             var preview = await ArchiveContentProjection.CreateTextPreviewAsync(cachedFilePath, cancellationToken: token);
             if (preview.IsSupported)
             {
@@ -427,8 +491,8 @@ public partial class ListSnapshotWindow : SukiWindow
             }
             else
             {
-                PreviewStatusText.Text = "No preview available";
-                PreviewStatusText.IsVisible = true;
+                SetPreviewFailure("Unsupported or binary file format.");
+                ShowCacheNotice(cacheResult);
             }
         }
         catch (OperationCanceledException)
@@ -438,7 +502,7 @@ public partial class ListSnapshotWindow : SukiWindow
         {
             if (ReferenceEquals(_previewCancellation, cancellation))
             {
-                ClearPreview("Could not create or read the archive preview.");
+                SetPreviewFailure("Cached file could not be read.");
                 if (cacheResult is not null)
                 {
                     ShowCacheNotice(cacheResult);
@@ -458,6 +522,9 @@ public partial class ListSnapshotWindow : SukiWindow
 
     private void ClearPreview(string message)
     {
+        PreviewImage.Source = null;
+        PreviewImage.IsVisible = false;
+        _previewState.Clear();
         PreviewTextBox.Text = string.Empty;
         PreviewTextBox.IsVisible = false;
         PreviewTruncatedNotice.IsVisible = false;
@@ -465,6 +532,11 @@ public partial class ListSnapshotWindow : SukiWindow
         PreviewCacheNotice.IsVisible = false;
         PreviewStatusText.Text = message;
         PreviewStatusText.IsVisible = true;
+    }
+
+    private void SetPreviewFailure(string reason)
+    {
+        ClearPreview($"No preview available: {reason}");
     }
 
     private void ShowCacheNotice(PreviewCacheResult result)
@@ -483,6 +555,7 @@ public partial class ListSnapshotWindow : SukiWindow
     private async void Window_Closed(object? sender, EventArgs e)
     {
         CancelPendingLoads();
+        ClearPreview("Select a file to preview");
         if (_previewTask is not null)
         {
             try

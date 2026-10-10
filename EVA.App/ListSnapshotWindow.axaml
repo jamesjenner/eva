@@ -148,6 +148,12 @@
                                    Text="Select a file to preview"
                                    TextWrapping="Wrap"
                                    Opacity="0.75" />
+                        <Image x:Name="PreviewImage"
+                               IsVisible="False"
+                               Stretch="Uniform"
+                               StretchDirection="DownOnly"
+                               HorizontalAlignment="Stretch"
+                               VerticalAlignment="Stretch" />
                         <TextBox x:Name="PreviewTextBox"
                                  IsReadOnly="True"
                                  AcceptsReturn="True"
