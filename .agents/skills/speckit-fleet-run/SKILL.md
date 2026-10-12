@@ -18,7 +18,7 @@ $ARGUMENTS
 
 You **MUST** consider the user input before proceeding (if not empty). Classify the input:
 
-1. **Feature description** (e.g., "Build a capability browser that lets users..."): Store as `FEATURE_DESCRIPTION`. This will be passed verbatim to `speckit.specify` in Phase 1. Skip artifact detection if no `FEATURE_DIR` is found -- go straight to Phase 1.
+1. **Feature description** (e.g., "Build a capability browser that lets users..."): Store as `FEATURE_DESCRIPTION`. This will be passed verbatim to `speckit.specify` in Phase 1. Skip artifact detection if no `FEATURE_DIR` is found -- perform required branch setup, then start Phase 1.
 2. **Phase override** (e.g., "resume at Phase 5" or "start from plan"): Override the auto-detected resume point.
 3. **Empty**: Run artifact detection and resume from the detected phase.
 
@@ -162,12 +162,34 @@ Before anything else, run basic git health checks:
 
 This check runs only once on first invocation. It does NOT block the workflow (except for detached HEAD).
 
+### Required branch setup before Specify
+
+Before invoking Phase 1, Fleet MUST create and switch to a new feature branch. This is
+Fleet's responsibility and MUST NOT depend on an optional `before_specify` hook.
+
+- Use an explicitly supplied `GIT_BRANCH_NAME`, or generate a unique `feature/<short-name>`
+  from the feature description. Validate with `git check-ref-format --branch`, then run
+  `git switch -c <branch-name>` from the current HEAD. Carry authorized uncommitted work
+  forward without automatically stashing, discarding, committing, resetting, or rebasing it.
+- Check local branch names first. For generated-name collisions, use a unique numeric suffix.
+  If an explicit name already exists, ask whether to resume it or choose another. Never
+  overwrite an existing branch.
+- Verify the active branch matches the intended name before delegation. On failure, stop
+  and report the error; never fall back to invoking Specify on `main` or `master`.
+- Pass the active branch name and completed branch setup to Specify. If a branch-creation
+  hook is registered, reconcile its supported reuse mechanism before invoking it so it does
+  not create a second branch. Do not run competing branch creation steps.
+- Retain the established branch for revisions. When resuming artifacts on `main` or `master`,
+  create a feature branch before further artifact writes. If a different feature branch is
+  active, confirm its association with the artifacts before switching or writing.
+  Feature directory names remain independent of branch names.
+
 ### Step 1: Discover the feature directory
 
 Run `.specify/scripts/bash/check-prerequisites.sh --json --paths-only` from the repo root to get the feature directory paths as JSON. Parse the output to get `FEATURE_DIR`.
 
 If the script fails (e.g., not on a feature branch):
-- If `FEATURE_DESCRIPTION` was provided in `$ARGUMENTS`, proceed directly to Phase 1 -- pass the description to `speckit.specify` and it will create the feature directory.
+- If `FEATURE_DESCRIPTION` was provided in `$ARGUMENTS`, perform required branch setup before Phase 1 -- pass the description to `speckit.specify` and it will create the feature directory.
 - If `$ARGUMENTS` is empty, ask the user for the feature description, then start Phase 1.
 
 ### Step 2: Check model configuration
@@ -292,7 +314,8 @@ For each phase:
 ```
 1. Mark the phase as in-progress in the todo list
 2. Announce: "**Phase N: {Name}** -- delegating to {agent}..."
-3. Delegate to the agent with relevant arguments:
+3. Before Phase 1 delegation, complete Required branch setup before Specify above.
+   Delegate to the agent with relevant arguments:
    - Phase 1 (Specify): pass FEATURE_DESCRIPTION from $ARGUMENTS as the argument
    - Phase 2 (Clarify): pass the feature description and any user feedback
    - All other phases: pass the feature description and any user-provided refinements
