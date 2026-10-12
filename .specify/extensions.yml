@@ -1,0 +1,13 @@
+installed:
+- fleet
+settings:
+  auto_execute_hooks: true
+hooks:
+  after_tasks:
+  - extension: fleet
+    command: speckit.fleet.review
+    enabled: true
+    optional: true
+    prompt: Run cross-model review to evaluate plan and tasks before implementation?
+    description: Pre-implementation review gate
+    condition: null
